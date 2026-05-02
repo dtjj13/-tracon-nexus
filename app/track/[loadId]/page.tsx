@@ -5,13 +5,18 @@ import { useParams } from "next/navigation";
 
 type Load = {
   id: string;
+  brokerLoadId?: string;
+  bolNumber?: string;
   pickup: string;
   dropoff: string;
   driver: string;
   status: string;
+  rateConFileName?: string;
   bolFileName?: string;
   podFileName?: string;
 };
+
+const timelineSteps = ["Arrived at Pickup", "Loaded", "In Transit", "Delivered"];
 
 export default function TrackingPage() {
   const params = useParams();
@@ -40,6 +45,8 @@ export default function TrackingPage() {
     );
   }
 
+  const currentIndex = timelineSteps.indexOf(load.status);
+
   return (
     <div className="min-h-screen bg-[#050A11] text-white p-6">
       <h1 className="text-3xl font-bold">
@@ -52,24 +59,56 @@ export default function TrackingPage() {
         <h2 className="text-xl font-bold">{load.id}</h2>
 
         <div className="grid grid-cols-2 gap-4 mt-4">
-          <div>
-            <p className="text-slate-400">Status</p>
-            <p className="font-semibold">{load.status}</p>
-          </div>
+          <Info label="Broker Load ID" value={load.brokerLoadId || "-"} />
+          <Info label="BOL Number" value={load.bolNumber || "-"} />
+          <Info label="Current Status" value={load.status} blue />
+          <Info label="Driver" value={load.driver} />
+          <Info label="Pickup" value={load.pickup} />
+          <Info label="Dropoff" value={load.dropoff} />
+        </div>
 
-          <div>
-            <p className="text-slate-400">Driver</p>
-            <p className="font-semibold">{load.driver}</p>
-          </div>
+        <div className="mt-6 rounded-lg border border-slate-800 bg-[#07101A] p-4">
+          <p className="font-semibold text-blue-400">Status Timeline</p>
 
-          <div>
-            <p className="text-slate-400">Pickup</p>
-            <p className="font-semibold">{load.pickup}</p>
-          </div>
+          <div className="mt-6">
+            <div className="relative flex items-center justify-between">
+              <div className="absolute left-0 right-0 top-4 h-1 bg-slate-800 rounded" />
 
-          <div>
-            <p className="text-slate-400">Dropoff</p>
-            <p className="font-semibold">{load.dropoff}</p>
+              <div
+                className="absolute left-0 top-4 h-1 bg-blue-500 rounded transition-all duration-500"
+                style={{
+                  width:
+                    currentIndex <= 0
+                      ? "0%"
+                      : `${(currentIndex / (timelineSteps.length - 1)) * 100}%`,
+                }}
+              />
+
+              {timelineSteps.map((step, index) => {
+                const isComplete = index < currentIndex;
+                const isCurrent = index === currentIndex;
+
+                return (
+                  <div key={step} className="relative z-10 flex flex-col items-center w-1/4">
+                    <div
+                      className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold border ${
+                        isComplete
+                          ? "bg-green-500 border-green-500 text-white"
+                          : isCurrent
+                          ? "bg-blue-500 border-blue-500 text-white"
+                          : "bg-[#050A11] border-slate-600 text-slate-500"
+                      }`}
+                    >
+                      {isComplete ? "✓" : index + 1}
+                    </div>
+
+                    <p className={`mt-3 text-xs text-center ${isComplete || isCurrent ? "text-white" : "text-slate-500"}`}>
+                      {step}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -80,28 +119,44 @@ export default function TrackingPage() {
           </p>
         </div>
 
-        <div className="mt-4">
-          <p className="font-semibold">Bill of Lading</p>
-          {load.bolFileName ? (
-            <a href={load.bolFileName} target="_blank" className="text-green-400 underline">
-              View BOL
-            </a>
-          ) : (
-            <p className="text-slate-500 mt-2">No BOL uploaded yet</p>
-          )}
-        </div>
-
-        <div className="mt-4">
-          <p className="font-semibold">Proof of Delivery</p>
-          {load.podFileName ? (
-            <a href={load.podFileName} target="_blank" className="text-green-400 underline">
-              View POD
-            </a>
-          ) : (
-            <p className="text-slate-500 mt-2">No POD uploaded yet</p>
-          )}
-        </div>
+        <DocumentLink title="Rate Confirmation" fileUrl={load.rateConFileName} linkText="View Rate Con" emptyText="No Rate Con uploaded yet" />
+        <DocumentLink title="Bill of Lading" fileUrl={load.bolFileName} linkText="View BOL" emptyText="No BOL uploaded yet" />
+        <DocumentLink title="Proof of Delivery" fileUrl={load.podFileName} linkText="View POD" emptyText="No POD uploaded yet" />
       </div>
+    </div>
+  );
+}
+
+function Info({ label, value, blue }: { label: string; value: string; blue?: boolean }) {
+  return (
+    <div>
+      <p className="text-slate-400">{label}</p>
+      <p className={`font-semibold ${blue ? "text-blue-400" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function DocumentLink({
+  title,
+  fileUrl,
+  linkText,
+  emptyText,
+}: {
+  title: string;
+  fileUrl?: string;
+  linkText: string;
+  emptyText: string;
+}) {
+  return (
+    <div className="mt-4">
+      <p className="font-semibold">{title}</p>
+      {fileUrl ? (
+        <a href={fileUrl} target="_blank" className="text-green-400 underline">
+          {linkText}
+        </a>
+      ) : (
+        <p className="text-slate-500 mt-2">{emptyText}</p>
+      )}
     </div>
   );
 }
