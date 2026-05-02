@@ -13,15 +13,7 @@ type Load = {
 };
 
 export default function DispatchPage() {
-  const [loads, setLoads] = useState<Load[]>([
-    {
-      id: "TN-001",
-      pickup: "Dallas, TX",
-      dropoff: "Atlanta, GA",
-      driver: "John Doe",
-      status: "In Transit",
-    },
-  ]);
+  const [loads, setLoads] = useState<Load[]>([]);
 
   const [form, setForm] = useState<Load>({
     id: "",
@@ -47,9 +39,10 @@ export default function DispatchPage() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("traconLoads", JSON.stringify(loads));
-  }, [loads]);
+  const saveLoads = (updatedLoads: Load[]) => {
+    setLoads(updatedLoads);
+    localStorage.setItem("traconLoads", JSON.stringify(updatedLoads));
+  };
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -77,7 +70,7 @@ export default function DispatchPage() {
       id: `TN-${Math.floor(1000 + Math.random() * 9000)}`,
     };
 
-    setLoads([...loads, newLoad]);
+    saveLoads([...loads, newLoad]);
 
     setForm({
       id: "",
@@ -178,7 +171,7 @@ export default function DispatchPage() {
                     onChange={(e) => {
                       const updated = [...loads];
                       updated[index].status = e.target.value;
-                      setLoads(updated);
+                      saveLoads(updated);
                     }}
                     className={`rounded-md px-2 py-1 text-xs font-semibold ${statusStyle(
                       load.status
@@ -195,7 +188,13 @@ export default function DispatchPage() {
 
                 <td className="p-4">
                   {load.bolFileName ? (
-                    <span className="text-green-400">{load.bolFileName}</span>
+                    <a
+                      href={load.bolFileName}
+                      target="_blank"
+                      className="text-green-400 underline"
+                    >
+                      View BOL
+                    </a>
                   ) : (
                     <span className="text-slate-500">No BOL</span>
                   )}
@@ -203,7 +202,13 @@ export default function DispatchPage() {
 
                 <td className="p-4">
                   {load.podFileName ? (
-                    <span className="text-green-400">{load.podFileName}</span>
+                    <a
+                      href={load.podFileName}
+                      target="_blank"
+                      className="text-green-400 underline"
+                    >
+                      View POD
+                    </a>
                   ) : (
                     <span className="text-slate-500">No POD</span>
                   )}
@@ -224,7 +229,7 @@ export default function DispatchPage() {
                   <button
                     onClick={() => {
                       const updated = loads.filter((_, i) => i !== index);
-                      setLoads(updated);
+                      saveLoads(updated);
                     }}
                     className="text-red-500 hover:text-red-400"
                   >

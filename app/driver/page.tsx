@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type Load = {
   id: string;
@@ -8,8 +9,8 @@ type Load = {
   dropoff: string;
   driver: string;
   status: string;
-  podFileName?: string;
   bolFileName?: string;
+  podFileName?: string;
 };
 
 export default function DriverPage() {
@@ -23,32 +24,55 @@ export default function DriverPage() {
     }
   }, []);
 
+  const saveLoads = (updatedLoads: Load[]) => {
+    setLoads(updatedLoads);
+    localStorage.setItem("traconLoads", JSON.stringify(updatedLoads));
+  };
+
   const updateStatus = (index: number, status: string) => {
     const updated = [...loads];
     updated[index].status = status;
-
-    setLoads(updated);
-    localStorage.setItem("traconLoads", JSON.stringify(updated));
+    saveLoads(updated);
   };
 
-  const uploadBOLFile = (index: number, file: File | null) => {
+  const uploadFile = async (
+    index: number,
+    file: File | null,
+    documentType: "BOL" | "POD"
+  ) => {
     if (!file) return;
 
+    alert(`Uploading ${documentType}: ${file.name}`);
+
+    const fileName = `${documentType.toLowerCase()}-${Date.now()}-${file.name}`;
+
+    const { error } = await supabase.storage
+      .from("documents")
+      .upload(fileName, file);
+
+    if (error) {
+      alert(`Upload failed: ${error.message}`);
+      console.error(error);
+      return;
+    }
+
+    const { data } = supabase.storage
+      .from("documents")
+      .getPublicUrl(fileName);
+
     const updated = [...loads];
-    updated[index].bolFileName = file.name;
 
-    setLoads(updated);
-    localStorage.setItem("traconLoads", JSON.stringify(updated));
-  };
+    if (documentType === "BOL") {
+      updated[index].bolFileName = data.publicUrl;
+    }
 
-  const uploadPODFile = (index: number, file: File | null) => {
-    if (!file) return;
+    if (documentType === "POD") {
+      updated[index].podFileName = data.publicUrl;
+    }
 
-    const updated = [...loads];
-    updated[index].podFileName = file.name;
+    saveLoads(updated);
 
-    setLoads(updated);
-    localStorage.setItem("traconLoads", JSON.stringify(updated));
+    alert(`${documentType} upload complete`);
   };
 
   return (
@@ -118,15 +142,21 @@ export default function DriverPage() {
                 <input
                   type="file"
                   onChange={(e) =>
-                    uploadBOLFile(index, e.target.files?.[0] || null)
+                    uploadFile(index, e.target.files?.[0] || null, "BOL")
                   }
                   className="hidden"
                 />
               </label>
 
               {load.bolFileName && (
-                <p className="mt-3 text-green-400">
-                  BOL uploaded: {load.bolFileName}
+                <p className="mt-3">
+                  <a
+                    href={load.bolFileName}
+                    target="_blank"
+                    className="text-green-400 underline"
+                  >
+                    View BOL
+                  </a>
                 </p>
               )}
             </div>
@@ -139,15 +169,21 @@ export default function DriverPage() {
                 <input
                   type="file"
                   onChange={(e) =>
-                    uploadPODFile(index, e.target.files?.[0] || null)
+                    uploadFile(index, e.target.files?.[0] || null, "POD")
                   }
                   className="hidden"
                 />
               </label>
 
               {load.podFileName && (
-                <p className="mt-3 text-green-400">
-                  POD uploaded: {load.podFileName}
+                <p className="mt-3">
+                  <a
+                    href={load.podFileName}
+                    target="_blank"
+                    className="text-green-400 underline"
+                  >
+                    View POD
+                  </a>
                 </p>
               )}
             </div>
