@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import Navbar from "../components/Navbar";
 
 type Driver = {
   id: string;
@@ -235,9 +236,7 @@ export default function DispatchPage() {
 
   return (
     <div className="min-h-screen bg-[#050A11] text-white p-6">
-      <h1 className="text-3xl font-bold">
-        TRACON <span className="text-blue-500 font-light">NEXUS</span>
-      </h1>
+      <Navbar />
 
       <div className="mt-6 grid grid-cols-7 gap-3">
         <input

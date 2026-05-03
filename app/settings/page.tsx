@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
+import Navbar from "../components/Navbar";
 
 type Driver = {
   id: string;
@@ -103,9 +104,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-[#050A11] text-white p-6">
-      <h1 className="text-3xl font-bold">
-        TRACON <span className="text-blue-500 font-light">NEXUS</span>
-      </h1>
+      <Navbar />
 
       <p className="text-slate-400 mt-2">Settings / Driver Management</p>
 
