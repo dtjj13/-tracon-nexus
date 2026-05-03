@@ -1,66 +1,151 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
 
 type Load = {
   id: string;
-  brokerLoadId?: string;
-  bolNumber?: string;
+  tracon_id: string;
+  broker_load_id?: string;
+  bol_number?: string;
   pickup: string;
   dropoff: string;
   driver: string;
   status: string;
-  bolFileName?: string;
-  podFileName?: string;
+  bol_url?: string;
+  pod_url?: string;
+  driver_lat?: number;
+  driver_lng?: number;
+  location_updated_at?: string;
 };
 
 export default function DriverPage() {
+  const router = useRouter();
+
   const [loads, setLoads] = useState<Load[]>([]);
+  const [trackingLoadId, setTrackingLoadId] = useState<string | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 🔥 FETCH LOADS (FILTERED BY LOGGED-IN DRIVER)
+  const fetchLoads = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user?.email) {
+      router.push("/login");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("loads")
+      .select("*")
+      .eq("driver", user.email)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setLoads(data || []);
+  };
 
   useEffect(() => {
-    const savedLoads = localStorage.getItem("traconLoads");
-    if (savedLoads) setLoads(JSON.parse(savedLoads));
+    fetchLoads();
   }, []);
 
-  const saveLoads = (updatedLoads: Load[]) => {
-    setLoads(updatedLoads);
-    localStorage.setItem("traconLoads", JSON.stringify(updatedLoads));
+  // 🔥 UPDATE STATUS
+  const updateStatus = async (loadId: string, status: string) => {
+    const { error } = await supabase
+      .from("loads")
+      .update({ status })
+      .eq("id", loadId);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    fetchLoads();
   };
 
-  const updateStatus = (index: number, status: string) => {
-    const updated = [...loads];
-    updated[index].status = status;
-    saveLoads(updated);
+  // 🔥 GPS UPDATE
+  const updateLocation = (loadId: string) => {
+    if (!navigator.geolocation) {
+      alert("GPS not supported");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { error } = await supabase
+        .from("loads")
+        .update({
+          driver_lat: pos.coords.latitude,
+          driver_lng: pos.coords.longitude,
+          location_updated_at: new Date().toISOString(),
+        })
+        .eq("id", loadId);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      fetchLoads();
+    });
   };
 
+  const startTracking = (loadId: string) => {
+    if (intervalRef.current) return;
+
+    setTrackingLoadId(loadId);
+
+    updateLocation(loadId);
+
+    intervalRef.current = setInterval(() => {
+      updateLocation(loadId);
+    }, 30000);
+  };
+
+  const stopTracking = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      setTrackingLoadId(null);
+    }
+  };
+
+  // 🔥 UPLOAD FILE
   const uploadFile = async (
-    index: number,
+    loadId: string,
     file: File | null,
-    documentType: "BOL" | "POD"
+    type: "BOL" | "POD"
   ) => {
     if (!file) return;
 
-    const fileName = `${documentType.toLowerCase()}-${Date.now()}-${file.name}`;
+    const fileName = `${type}-${Date.now()}-${file.name}`;
 
-    const { error } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from("documents")
       .upload(fileName, file);
 
-    if (error) {
-      alert(`Upload failed: ${error.message}`);
+    if (uploadError) {
+      alert(uploadError.message);
       return;
     }
 
     const { data } = supabase.storage.from("documents").getPublicUrl(fileName);
 
-    const updated = [...loads];
+    const updateData =
+      type === "BOL"
+        ? { bol_url: data.publicUrl }
+        : { pod_url: data.publicUrl };
 
-    if (documentType === "BOL") updated[index].bolFileName = data.publicUrl;
-    if (documentType === "POD") updated[index].podFileName = data.publicUrl;
+    await supabase.from("loads").update(updateData).eq("id", loadId);
 
-    saveLoads(updated);
-    alert(`${documentType} upload complete`);
+    fetchLoads();
   };
 
   return (
@@ -72,67 +157,49 @@ export default function DriverPage() {
       <p className="text-slate-400 mt-2">Driver View</p>
 
       <div className="mt-8 space-y-4">
-        {loads.map((load, index) => (
-          <div key={load.id} className="rounded-xl border border-slate-800 bg-[#07101A] p-5">
-            <p className="text-slate-400 text-sm">Load ID</p>
-            <h2 className="text-2xl font-bold">{load.id}</h2>
+        {loads.map((load) => (
+          <div
+            key={load.id}
+            className="rounded-xl border border-slate-800 bg-[#07101A] p-5"
+          >
+            <h2 className="text-xl font-bold">{load.tracon_id}</h2>
+
+            <p className="mt-2">Pickup: {load.pickup}</p>
+            <p>Dropoff: {load.dropoff}</p>
+            <p>Driver: {load.driver}</p>
+            <p className="text-blue-400 mt-1">{load.status}</p>
+
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <button onClick={() => updateStatus(load.id, "Arrived at Pickup")} className="bg-slate-700 p-2 rounded">Arrived</button>
+              <button onClick={() => updateStatus(load.id, "Loaded")} className="bg-blue-600 p-2 rounded">Loaded</button>
+              <button onClick={() => updateStatus(load.id, "In Transit")} className="bg-blue-600 p-2 rounded">Transit</button>
+              <button onClick={() => updateStatus(load.id, "Delivered")} className="bg-green-600 p-2 rounded">Delivered</button>
+            </div>
 
             <div className="mt-4">
-              <p>Broker Load ID: {load.brokerLoadId || "-"}</p>
-              <p>BOL Number: {load.bolNumber || "-"}</p>
-              <p>Driver: {load.driver}</p>
-              <p>Pickup: {load.pickup}</p>
-              <p>Dropoff: {load.dropoff}</p>
-              <p className="mt-2">
-                Current Status: <span className="text-blue-500 font-semibold">{load.status}</span>
-              </p>
+              {trackingLoadId === load.id ? (
+                <button onClick={stopTracking} className="bg-red-600 p-2 w-full rounded">
+                  Stop Tracking
+                </button>
+              ) : (
+                <button onClick={() => startTracking(load.id)} className="bg-blue-600 p-2 w-full rounded">
+                  Start Tracking
+                </button>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mt-5">
-              <button onClick={() => updateStatus(index, "Arrived at Pickup")} className="bg-slate-800 p-3 rounded hover:bg-slate-700">Arrived at Pickup</button>
-              <button onClick={() => updateStatus(index, "Loaded")} className="bg-blue-600 p-3 rounded hover:bg-blue-500">Loaded</button>
-              <button onClick={() => updateStatus(index, "In Transit")} className="bg-blue-600 p-3 rounded hover:bg-blue-500">In Transit</button>
-              <button onClick={() => updateStatus(index, "Delivered")} className="bg-green-600 p-3 rounded hover:bg-green-500">Delivered</button>
+            <div className="mt-4">
+              <label className="block text-sm">Upload BOL</label>
+              <input type="file" onChange={(e) => uploadFile(load.id, e.target.files?.[0] || null, "BOL")} />
             </div>
 
-            <DocumentUpload title="Bill of Lading" button="Upload BOL" linkText="View BOL" fileUrl={load.bolFileName} onUpload={(file) => uploadFile(index, file, "BOL")} />
-            <DocumentUpload title="Proof of Delivery" button="Upload POD" linkText="View POD" fileUrl={load.podFileName} onUpload={(file) => uploadFile(index, file, "POD")} />
+            <div className="mt-2">
+              <label className="block text-sm">Upload POD</label>
+              <input type="file" onChange={(e) => uploadFile(load.id, e.target.files?.[0] || null, "POD")} />
+            </div>
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function DocumentUpload({
-  title,
-  button,
-  linkText,
-  fileUrl,
-  onUpload,
-}: {
-  title: string;
-  button: string;
-  linkText: string;
-  fileUrl?: string;
-  onUpload: (file: File | null) => void;
-}) {
-  return (
-    <div className="mt-5 rounded-lg border border-slate-800 p-4">
-      <p className="font-semibold">{title}</p>
-
-      <label className="mt-3 inline-block bg-blue-600 px-4 py-2 rounded cursor-pointer hover:bg-blue-500">
-        {button}
-        <input type="file" onChange={(e) => onUpload(e.target.files?.[0] || null)} className="hidden" />
-      </label>
-
-      {fileUrl && (
-        <p className="mt-3">
-          <a href={fileUrl} target="_blank" className="text-green-400 underline">
-            {linkText}
-          </a>
-        </p>
-      )}
     </div>
   );
 }
