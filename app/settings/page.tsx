@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import Navbar from "../components/Navbar";
+import { getUserRole } from "../lib/getUserRole";
 
 type Driver = {
   id: string;
@@ -16,7 +17,22 @@ type Driver = {
 
 export default function SettingsPage() {
   const router = useRouter();
+useEffect(() => {
+  const checkRole = async () => {
+    const role = await getUserRole();
 
+    if (!role) {
+      router.push("/login");
+      return;
+    }
+
+    if (role !== "dispatcher" && role !== "owner" && role !== "admin") {
+      router.push("/driver");
+    }
+  };
+
+  checkRole();
+}, [router]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [form, setForm] = useState({
     name: "",

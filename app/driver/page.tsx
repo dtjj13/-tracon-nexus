@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
+import { getUserRole } from "../lib/getUserRole";
 
 type Load = {
   id: string;
@@ -22,7 +23,22 @@ type Load = {
 
 export default function DriverPage() {
   const router = useRouter();
+useEffect(() => {
+  const checkRole = async () => {
+    const role = await getUserRole();
 
+    if (!role) {
+      router.push("/login");
+      return;
+    }
+
+    if (role !== "driver") {
+      router.push("/dispatch");
+    }
+  };
+
+  checkRole();
+}, [router]);
   const [loads, setLoads] = useState<Load[]>([]);
   const [trackingLoadId, setTrackingLoadId] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);

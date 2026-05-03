@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import Navbar from "../../components/Navbar";
+import { getUserRole } from "../../lib/getUserRole";
 
 type Profile = {
   id: string;
@@ -26,7 +27,22 @@ const roles = [
 
 export default function UsersPage() {
   const router = useRouter();
+useEffect(() => {
+  const checkRole = async () => {
+    const role = await getUserRole();
 
+    if (!role) {
+      router.push("/login");
+      return;
+    }
+
+    if (role !== "owner" && role !== "admin") {
+      router.push("/dispatch");
+    }
+  };
+
+  checkRole();
+}, [router]);
   const [users, setUsers] = useState<Profile[]>([]);
   const [form, setForm] = useState({
     name: "",

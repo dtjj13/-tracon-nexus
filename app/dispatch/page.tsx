@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import Navbar from "../components/Navbar";
+import { useRouter } from "next/navigation";
+import { getUserRole } from "../lib/getUserRole";
 
 type Driver = {
   id: string;
@@ -39,6 +41,23 @@ type LoadForm = {
 };
 
 export default function DispatchPage() {
+  const router = useRouter();
+  useEffect(() => {
+  const checkRole = async () => {
+    const role = await getUserRole();
+
+    if (!role) {
+      router.push("/login");
+      return;
+    }
+
+    if (role !== "dispatcher" && role !== "owner" && role !== "admin") {
+      router.push("/driver");
+    }
+  };
+
+  checkRole();
+}, [router]);
   const [loads, setLoads] = useState<Load[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
 
