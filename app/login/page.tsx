@@ -11,41 +11,51 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
 
   const signUp = async () => {
-    if (!email || !password) {
-      alert("Enter email and password");
-      return;
-    }
+    if (!email || !password) return alert("Enter email and password");
 
-    const { error } = await supabase.auth.signUp({
-      email: email,
-      password: password,
-    });
+    const { error } = await supabase.auth.signUp({ email, password });
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
+    if (error) return alert(error.message);
 
     alert("Account created. Now click Sign In.");
   };
 
   const signIn = async () => {
-    if (!email || !password) {
-      alert("Enter email and password");
-      return;
-    }
+    if (!email || !password) return alert("Enter email and password");
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email,
-      password: password,
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
 
-    if (error) {
-      alert(error.message);
+    if (error) return alert(error.message);
+
+    const userEmail = data.user?.email;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("email", userEmail)
+      .single();
+
+    if (profile?.role === "dispatcher" || profile?.role === "owner") {
+      router.push("/dispatch");
       return;
     }
 
-    router.push("/dispatch");
+    const { data: driver } = await supabase
+      .from("drivers")
+      .select("*")
+      .eq("email", userEmail)
+      .eq("active", true)
+      .single();
+
+    if (driver) {
+      router.push("/driver");
+      return;
+    }
+
+    alert("No role found for this account.");
   };
 
   return (
@@ -72,17 +82,11 @@ export default function LoginPage() {
           className="mt-3 w-full bg-[#0B1522] p-3 rounded border border-slate-700"
         />
 
-        <button
-          onClick={signIn}
-          className="mt-5 w-full bg-blue-600 p-3 rounded hover:bg-blue-500"
-        >
+        <button onClick={signIn} className="mt-5 w-full bg-blue-600 p-3 rounded">
           Sign In
         </button>
 
-        <button
-          onClick={signUp}
-          className="mt-3 w-full bg-slate-800 p-3 rounded hover:bg-slate-700"
-        >
+        <button onClick={signUp} className="mt-3 w-full bg-slate-800 p-3 rounded">
           Create Account
         </button>
       </div>
