@@ -17,16 +17,32 @@ export const getUserProfile = async () => {
 
   if (!user?.email) return null;
 
-  const { data, error } = await supabase
+  const { data: profile } = await supabase
     .from("profiles")
     .select("*")
     .eq("email", user.email)
     .eq("active", true)
-    .single();
+    .maybeSingle();
 
-  if (error) return null;
+  if (profile) return profile;
 
-  return data;
+  const { data: driver } = await supabase
+    .from("drivers")
+    .select("*")
+    .eq("email", user.email)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (driver) {
+    return {
+      email: driver.email,
+      name: driver.name,
+      role: "driver",
+      active: true,
+    };
+  }
+
+  return null;
 };
 
 export const getUserRole = async () => {
