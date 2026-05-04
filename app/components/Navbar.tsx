@@ -59,7 +59,7 @@ export default function Navbar() {
 
   return (
     <>
-      <div className="mb-6 flex items-center justify-between border-b border-slate-800 pb-4">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-4">
         <div>
           <h1 className="text-3xl font-bold">
             TRACON <span className="text-blue-500 font-light">NEXUS</span>
@@ -69,7 +69,7 @@ export default function Navbar() {
 
         <button
           onClick={() => setOpen(true)}
-          className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 hover:bg-slate-700"
+          className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2 hover:bg-slate-700"
         >
           <Menu size={20} />
           <span>Menu</span>

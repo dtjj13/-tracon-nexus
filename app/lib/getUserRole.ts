@@ -1,17 +1,40 @@
 import { supabase } from "./supabase";
 
-export const getUserRole = async () => {
+export type UserRole =
+  | "owner"
+  | "admin"
+  | "dispatcher"
+  | "driver"
+  | "manager"
+  | "safety"
+  | "payroll"
+  | "maintenance";
+
+export const getUserProfile = async () => {
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user?.email) return null;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("profiles")
-    .select("role")
+    .select("*")
     .eq("email", user.email)
+    .eq("active", true)
     .single();
 
-  return data?.role || null;
+  if (error) return null;
+
+  return data;
+};
+
+export const getUserRole = async () => {
+  const profile = await getUserProfile();
+  return profile?.role || null;
+};
+
+export const hasRole = async (allowedRoles: UserRole[]) => {
+  const role = await getUserRole();
+  return role ? allowedRoles.includes(role as UserRole) : false;
 };

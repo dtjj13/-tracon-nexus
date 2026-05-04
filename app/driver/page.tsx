@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
-import { getUserRole } from "../lib/getUserRole";
+import { getUserRole, hasRole } from "../lib/getUserRole";
 
 type Load = {
   id: string;
@@ -25,16 +25,11 @@ export default function DriverPage() {
   const router = useRouter();
 useEffect(() => {
   const checkRole = async () => {
-    const role = await getUserRole();
+   const allowed = await hasRole(["driver"]);
 
-    if (!role) {
-      router.push("/login");
-      return;
-    }
-
-    if (role !== "driver") {
-      router.push("/dispatch");
-    }
+if (!allowed) {
+  router.push("/dispatch");
+}
   };
 
   checkRole();
@@ -165,7 +160,7 @@ useEffect(() => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050A11] text-white p-6">
+    <div className="min-h-screen bg-[#050A11] text-white p-3 sm:p-6">
       <h1 className="text-3xl font-bold">
         TRACON <span className="text-blue-500 font-light">NEXUS</span>
       </h1>

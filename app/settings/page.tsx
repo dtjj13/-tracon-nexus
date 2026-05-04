@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import Navbar from "../components/Navbar";
-import { getUserRole } from "../lib/getUserRole";
+import { getUserRole, hasRole } from "../lib/getUserRole";
 
 type Driver = {
   id: string;
@@ -19,16 +19,11 @@ export default function SettingsPage() {
   const router = useRouter();
 useEffect(() => {
   const checkRole = async () => {
-    const role = await getUserRole();
+    const allowed = await hasRole(["owner", "admin", "dispatcher"]);
 
-    if (!role) {
-      router.push("/login");
-      return;
-    }
-
-    if (role !== "dispatcher" && role !== "owner" && role !== "admin") {
-      router.push("/driver");
-    }
+if (!allowed) {
+  router.push("/driver");
+}
   };
 
   checkRole();
@@ -119,7 +114,7 @@ useEffect(() => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050A11] text-white p-6">
+    <div className="min-h-screen bg-[#050A11] text-white p-3 sm:p-6">
       <Navbar />
 
       <p className="text-slate-400 mt-2">Settings / Driver Management</p>
@@ -157,12 +152,12 @@ useEffect(() => {
           />
         </div>
 
-        <button onClick={addDriver} className="mt-4 bg-blue-600 px-4 py-2 rounded">
+        <button onClick={addDriver} className="mt-4 w-full sm:w-auto bg-blue-600 px-4 py-2 rounded">
           + Add Driver
         </button>
       </div>
 
-      <div className="mt-8 rounded-xl border border-slate-800 overflow-hidden">
+      <div className="mt-8 rounded-xl border border-slate-800 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-[#0B1522] text-slate-400">
             <tr>

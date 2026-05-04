@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import Navbar from "../components/Navbar";
 import { useRouter } from "next/navigation";
-import { getUserRole } from "../lib/getUserRole";
+import { getUserRole, hasRole } from "../lib/getUserRole";
 
 type Driver = {
   id: string;
@@ -44,16 +44,11 @@ export default function DispatchPage() {
   const router = useRouter();
   useEffect(() => {
   const checkRole = async () => {
-    const role = await getUserRole();
+    const allowed = await hasRole(["owner", "admin", "dispatcher", "manager"]);
 
-    if (!role) {
-      router.push("/login");
-      return;
-    }
-
-    if (role !== "dispatcher" && role !== "owner" && role !== "admin") {
-      router.push("/driver");
-    }
+if (!allowed) {
+  router.push("/driver");
+}
   };
 
   checkRole();
@@ -254,7 +249,7 @@ export default function DispatchPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#050A11] text-white p-6">
+    <div className="min-h-screen bg-[#050A11] text-white p-3 sm:p-6">
       <Navbar />
 
       <div className="mt-6 grid grid-cols-7 gap-3">
@@ -327,12 +322,11 @@ export default function DispatchPage() {
 
       <button
         onClick={addLoad}
-        className="mt-4 bg-blue-600 px-4 py-2 rounded hover:bg-blue-500"
-      >
+       className="mt-4 w-full sm:w-auto bg-blue-600 px-4 py-2 rounded">
         + Create Load
       </button>
 
-      <div className="mt-8 rounded-xl border border-slate-800 overflow-auto">
+      <div className="mt-8 rounded-xl border border-slate-800 overflow-x-auto">
         <table className="w-full min-w-[1500px] text-sm">
           <thead className="bg-[#0B1522] text-slate-400">
             <tr>

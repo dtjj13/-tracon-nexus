@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import Navbar from "../../components/Navbar";
-import { getUserRole } from "../../lib/getUserRole";
+import { hasRole } from "../../lib/getUserRole";
+
 
 type Profile = {
   id: string;
@@ -29,16 +30,11 @@ export default function UsersPage() {
   const router = useRouter();
 useEffect(() => {
   const checkRole = async () => {
-    const role = await getUserRole();
+    const allowed = await hasRole(["owner", "admin"]);
 
-    if (!role) {
-      router.push("/login");
-      return;
-    }
-
-    if (role !== "owner" && role !== "admin") {
-      router.push("/dispatch");
-    }
+if (!allowed) {
+  router.push("/dispatch");
+}
   };
 
   checkRole();
@@ -141,7 +137,7 @@ useEffect(() => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050A11] text-white p-6">
+    <div className="min-h-screen bg-[#050A11] text-white p-3 sm:p-6">
       <Navbar />
 
       <p className="text-slate-400 mt-2">Settings / Users & Roles</p>
@@ -179,13 +175,12 @@ useEffect(() => {
 
         <button
           onClick={addUser}
-          className="mt-4 bg-blue-600 px-4 py-2 rounded hover:bg-blue-500"
-        >
+          className="mt-4 w-full sm:w-auto bg-blue-600 px-4 py-2 rounded">
           + Add User
         </button>
       </div>
 
-      <div className="mt-8 rounded-xl border border-slate-800 overflow-hidden">
+      <div className="mt-8 rounded-xl border border-slate-800 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-[#0B1522] text-slate-400">
             <tr>
