@@ -72,9 +72,14 @@ export default function TrackingPage() {
   if (!load) {
     return (
       <div className="min-h-screen bg-[#050A11] text-white p-6">
-        <h1 className="text-3xl font-bold">
-          TRACON <span className="text-blue-500 font-light">NEXUS</span>
-        </h1>
+       <div className="mb-4">
+  <img
+    src="/logo-wordmark.svg"
+    alt="Tracon Nexus"
+    className="h-10 w-auto"
+  />
+  
+</div>
         <p className="mt-6 text-slate-400">Load not found.</p>
       </div>
     );
@@ -84,11 +89,16 @@ export default function TrackingPage() {
 
   return (
     <div className="min-h-screen bg-[#050A11] text-white p-6">
-      <h1 className="text-3xl font-bold">
-        TRACON <span className="text-blue-500 font-light">NEXUS</span>
-      </h1>
+      <div className="mb-4">
+  <img
+    src="/logo-wordmark.svg"
+    alt="Tracon Nexus"
+    className="h-10 w-auto"
+  />
+  
+</div>
 
-      <p className="text-slate-400 mt-2">Broker Tracking View</p>
+      
 
       <div className="mt-6 rounded-xl border border-blue-900 bg-blue-950/30 p-6">
         <h2 className="text-xl font-bold">{load.tracon_id}</h2>
