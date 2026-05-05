@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Navbar from "../components/Navbar";
 import { supabase } from "../lib/supabase";
 import { hasRole } from "../lib/getUserRole";
 
@@ -37,6 +38,7 @@ export default function DispatchPage() {
 
   const [loads, setLoads] = useState<Load[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     broker_load_id: "",
@@ -119,13 +121,21 @@ export default function DispatchPage() {
   };
 
   const updateStatus = async (loadId: string, status: string) => {
+    const cleanStatus = status.trim();
+
     const { error } = await supabase
       .from("loads")
-      .update({ status })
+      .update({ status: cleanStatus })
       .eq("id", loadId);
 
     if (error) return alert(error.message);
     fetchLoads();
+  };
+
+  const handleDrop = async (newStatus: string) => {
+    if (!draggingId) return;
+    await updateStatus(draggingId, newStatus);
+    setDraggingId(null);
   };
 
   const changeDriver = async (loadId: string, driverId: string) => {
@@ -170,7 +180,10 @@ export default function DispatchPage() {
         ? { bol_url: data.publicUrl }
         : { pod_url: data.publicUrl };
 
-    const { error } = await supabase.from("loads").update(updateData).eq("id", loadId);
+    const { error } = await supabase
+      .from("loads")
+      .update(updateData)
+      .eq("id", loadId);
 
     if (error) return alert(error.message);
     fetchLoads();
@@ -186,22 +199,32 @@ export default function DispatchPage() {
   };
 
   const totalLoads = loads.length;
-  const pendingLoads = loads.filter((l) => l.status === "Pending").length;
-  const arrivedLoads = loads.filter((l) => l.status === "Arrived").length;
-  const transitLoads = loads.filter((l) => l.status === "In Transit").length;
-  const deliveredLoads = loads.filter((l) => l.status === "Delivered").length;
-  const missingPod = loads.filter((l) => l.status === "Delivered" && !l.pod_url).length;
+  const pendingLoads = loads.filter((l) => clean(l.status) === "pending").length;
+  const arrivedLoads = loads.filter((l) => clean(l.status) === "arrived").length;
+  const transitLoads = loads.filter((l) => clean(l.status) === "in transit").length;
+  const deliveredLoads = loads.filter((l) => clean(l.status) === "delivered").length;
+  const missingPod = loads.filter(
+    (l) => clean(l.status) === "delivered" && !l.pod_url
+  ).length;
 
   return (
     <div className="space-y-6">
+      <Navbar />
+
       <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5 shadow-[0_0_30px_rgba(0,0,0,0.45)]">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-[#00A3FF]">Operations</p>
-            <h1 className="mt-1 text-2xl font-bold text-white">Dispatch Board</h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Live load control center — assign, track, update, and manage documents.
-            </p>
+            <p className="text-xs uppercase tracking-[0.3em] text-[#00A3FF]">
+  Operations
+</p>
+
+<h1 className="mt-2 text-base uppercase tracking-[0.35em] text-white">
+  Live Load Control Center
+</h1>
+
+<p className="mt-1 text-sm text-slate-400">
+  Drag loads between columns to update status in real time.
+</p>
           </div>
 
           <div className="rounded-xl border border-[#1E6BFF]/40 bg-[#0B1522] px-4 py-3 text-sm shadow-[0_0_20px_rgba(30,107,255,0.12)]">
@@ -229,10 +252,29 @@ export default function DispatchPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
-          <Input placeholder="Broker Load ID" value={form.broker_load_id} onChange={(value) => setForm({ ...form, broker_load_id: value })} />
-          <Input placeholder="BOL Number" value={form.bol_number} onChange={(value) => setForm({ ...form, bol_number: value })} />
-          <Input placeholder="Pickup" value={form.pickup} onChange={(value) => setForm({ ...form, pickup: value })} />
-          <Input placeholder="Dropoff" value={form.dropoff} onChange={(value) => setForm({ ...form, dropoff: value })} />
+          <Input
+            placeholder="Broker Load ID"
+            value={form.broker_load_id}
+            onChange={(value) => setForm({ ...form, broker_load_id: value })}
+          />
+
+          <Input
+            placeholder="BOL Number"
+            value={form.bol_number}
+            onChange={(value) => setForm({ ...form, bol_number: value })}
+          />
+
+          <Input
+            placeholder="Pickup"
+            value={form.pickup}
+            onChange={(value) => setForm({ ...form, pickup: value })}
+          />
+
+          <Input
+            placeholder="Dropoff"
+            value={form.dropoff}
+            onChange={(value) => setForm({ ...form, dropoff: value })}
+          />
 
           <select
             value={form.driver_id}
@@ -241,7 +283,9 @@ export default function DispatchPage() {
           >
             <option value="">Select Driver</option>
             {drivers.map((driver) => (
-              <option key={driver.id} value={driver.id}>{driver.name}</option>
+              <option key={driver.id} value={driver.id}>
+                {driver.name}
+              </option>
             ))}
           </select>
 
@@ -256,14 +300,29 @@ export default function DispatchPage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         {statuses.map((status) => {
-          const columnLoads = loads.filter((load) => load.status === status);
+          const columnLoads = loads.filter(
+            (load) => clean(load.status) === clean(status)
+          );
 
           return (
-            <div key={status} className="min-h-[420px] rounded-2xl border border-slate-800 bg-[#07101A] p-4 shadow-[0_0_25px_rgba(0,0,0,0.5)]">
+            <div
+              key={status}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleDrop(status)}
+             className={`min-h-[420px] rounded-2xl border p-4 shadow-[0_0_25px_rgba(0,0,0,0.5)] transition-all duration-200 ease-out ${
+  draggingId
+    ? "border-[#00A3FF]/70 bg-[#0B1522] shadow-[0_0_28px_rgba(0,163,255,0.18)]"
+    : "border-slate-800 bg-[#07101A]"
+}`}
+            >
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h3 className={`font-semibold ${statusColor(status)}`}>{status}</h3>
-                  <p className="text-xs text-slate-500">Load status</p>
+                  <h3 className={`font-semibold ${statusColor(status)}`}>
+                    {status}
+                  </h3>
+                  <p className={`text-xs ${draggingId ? "text-[#00A3FF]" : "text-slate-500"}`}>
+  Drop load here to mark {status}
+</p>
                 </div>
 
                 <span className="rounded-full border border-slate-700 bg-[#0B1522] px-2 py-1 text-xs text-slate-300">
@@ -277,6 +336,7 @@ export default function DispatchPage() {
                     key={load.id}
                     load={load}
                     drivers={drivers}
+                    setDraggingId={setDraggingId}
                     updateStatus={updateStatus}
                     changeDriver={changeDriver}
                     uploadFile={uploadFile}
@@ -298,42 +358,109 @@ export default function DispatchPage() {
   );
 }
 
-function LoadCard({ load, drivers, updateStatus, changeDriver, uploadFile, deleteLoad }: any) {
+function LoadCard({
+  load,
+  drivers,
+  setDraggingId,
+  updateStatus,
+  changeDriver,
+  uploadFile,
+  deleteLoad,
+}: {
+  load: Load;
+  drivers: Driver[];
+  setDraggingId: (id: string | null) => void;
+  updateStatus: (loadId: string, status: string) => void;
+  changeDriver: (loadId: string, driverId: string) => void;
+  uploadFile: (
+    loadId: string,
+    file: File | null,
+    type: "RATECON" | "BOL" | "POD"
+  ) => void;
+  deleteLoad: (loadId: string) => void;
+}) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-[#050A11] p-4 transition hover:border-[#00A3FF] hover:shadow-[0_0_18px_rgba(0,163,255,0.18)]">
+    <div
+      draggable
+      onDragStart={() => setDraggingId(load.id)}
+      onDragEnd={() => setDraggingId(null)}
+      className="cursor-grab rounded-2xl border border-slate-800 bg-[#050A11] p-4 transition active:cursor-grabbing hover:border-[#00A3FF] hover:shadow-[0_0_18px_rgba(0,163,255,0.18)]"
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-base font-bold text-[#00A3FF]">{load.broker_load_id || load.tracon_id}</p>
+          <p className="text-base font-bold text-[#00A3FF]">
+            {load.broker_load_id || load.tracon_id}
+          </p>
           <p className="text-xs text-slate-500">{load.tracon_id}</p>
         </div>
-        <button onClick={() => deleteLoad(load.id)} className="text-xs text-red-400 hover:text-red-300">Delete</button>
+
+        <button
+          onClick={() => deleteLoad(load.id)}
+          className="text-xs text-red-400 hover:text-red-300"
+        >
+          Delete
+        </button>
       </div>
 
       <div className="mt-3 rounded-xl bg-[#07101A] p-3">
-        <p className="text-sm font-medium text-white">{load.pickup} → {load.dropoff}</p>
-        <p className="mt-1 text-xs text-slate-400">Driver: {load.driver_name || "Unassigned"}</p>
-        {load.bol_number && <p className="mt-1 text-xs text-slate-500">BOL: {load.bol_number}</p>}
+        <p className="text-sm font-medium text-white">
+          {load.pickup} → {load.dropoff}
+        </p>
+        <p className="mt-1 text-xs text-slate-400">
+          Driver: {load.driver_name || "Unassigned"}
+        </p>
+        {load.bol_number && (
+          <p className="mt-1 text-xs text-slate-500">BOL: {load.bol_number}</p>
+        )}
       </div>
 
-      <select value={load.status} onChange={(e) => updateStatus(load.id, e.target.value)} className="mt-3 w-full rounded-xl border border-slate-700 bg-[#0B1522] p-2 text-sm text-white outline-none focus:border-[#00A3FF]">
-        {statuses.map((s) => <option key={s}>{s}</option>)}
+      <select
+        value={load.status}
+        onChange={(e) => updateStatus(load.id, e.target.value)}
+        className="mt-3 w-full rounded-xl border border-slate-700 bg-[#0B1522] p-2 text-sm text-white outline-none focus:border-[#00A3FF]"
+      >
+        {statuses.map((s) => (
+          <option key={s}>{s}</option>
+        ))}
       </select>
 
-      <select value="" onChange={(e) => changeDriver(load.id, e.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-[#0B1522] p-2 text-sm text-white outline-none focus:border-[#00A3FF]">
+      <select
+        value=""
+        onChange={(e) => changeDriver(load.id, e.target.value)}
+        className="mt-2 w-full rounded-xl border border-slate-700 bg-[#0B1522] p-2 text-sm text-white outline-none focus:border-[#00A3FF]"
+      >
         <option value="">Reassign Driver</option>
-        {drivers.map((driver: Driver) => (
-          <option key={driver.id} value={driver.id}>{driver.name}</option>
+        {drivers.map((driver) => (
+          <option key={driver.id} value={driver.id}>
+            {driver.name}
+          </option>
         ))}
       </select>
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-        <DocButton label="Rate" url={load.rate_con_url} onUpload={(file) => uploadFile(load.id, file, "RATECON")} />
-        <DocButton label="BOL" url={load.bol_url} onUpload={(file) => uploadFile(load.id, file, "BOL")} />
-        <DocButton label="POD" url={load.pod_url} onUpload={(file) => uploadFile(load.id, file, "POD")} />
+        <DocButton
+          label="Rate"
+          url={load.rate_con_url}
+          onUpload={(file) => uploadFile(load.id, file, "RATECON")}
+        />
+        <DocButton
+          label="BOL"
+          url={load.bol_url}
+          onUpload={(file) => uploadFile(load.id, file, "BOL")}
+        />
+        <DocButton
+          label="POD"
+          url={load.pod_url}
+          onUpload={(file) => uploadFile(load.id, file, "POD")}
+        />
       </div>
 
       {load.driver_lat && load.driver_lng && (
-        <a href={`https://www.google.com/maps?q=${load.driver_lat},${load.driver_lng}`} target="_blank" className="mt-3 block text-xs text-green-400 underline">
+        <a
+          href={`https://www.google.com/maps?q=${load.driver_lat},${load.driver_lng}`}
+          target="_blank"
+          className="mt-3 block text-xs text-green-400 underline"
+        >
           View Map
         </a>
       )}
@@ -352,7 +479,15 @@ function LoadCard({ load, drivers, updateStatus, changeDriver, uploadFile, delet
   );
 }
 
-function Input({ placeholder, value, onChange }: { placeholder: string; value: string; onChange: (value: string) => void }) {
+function Input({
+  placeholder,
+  value,
+  onChange,
+}: {
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <input
       placeholder={placeholder}
@@ -363,21 +498,42 @@ function Input({ placeholder, value, onChange }: { placeholder: string; value: s
   );
 }
 
-function DocButton({ label, url, onUpload }: { label: string; url?: string; onUpload: (file: File | null) => void }) {
+function DocButton({
+  label,
+  url,
+  onUpload,
+}: {
+  label: string;
+  url?: string;
+  onUpload: (file: File | null) => void;
+}) {
   if (url) {
-    return <a href={url} target="_blank" className="rounded-lg bg-green-900/30 p-2 text-center text-green-400 hover:bg-green-900/50">View {label}</a>;
+    return (
+      <a
+        href={url}
+        target="_blank"
+        className="rounded-lg bg-green-900/30 p-2 text-center text-green-400 hover:bg-green-900/50"
+      >
+        View {label}
+      </a>
+    );
   }
 
   return (
     <label className="cursor-pointer rounded-lg bg-blue-900/30 p-2 text-center text-blue-400 hover:bg-blue-900/50">
       Upload {label}
-      <input type="file" className="hidden" onChange={(e) => onUpload(e.target.files?.[0] || null)} />
+      <input
+        type="file"
+        className="hidden"
+        onChange={(e) => onUpload(e.target.files?.[0] || null)}
+      />
     </label>
   );
 }
 
 function StatCard({ title, value }: { title: string; value: number }) {
   let color = "text-[#00A3FF]";
+
   if (title === "Pending") color = "text-yellow-400";
   if (title === "Arrived") color = "text-indigo-400";
   if (title === "In Transit") color = "text-blue-400";
@@ -386,7 +542,9 @@ function StatCard({ title, value }: { title: string; value: number }) {
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5 shadow-[0_0_25px_rgba(0,0,0,0.45)] transition hover:border-[#00A3FF]">
-      <p className="text-xs uppercase tracking-widest text-slate-500">{title}</p>
+      <p className="text-xs uppercase tracking-widest text-slate-500">
+        {title}
+      </p>
       <h2 className={`mt-3 text-3xl font-bold ${color}`}>{value}</h2>
     </div>
   );
@@ -399,4 +557,8 @@ function statusColor(status: string) {
   if (status === "In Transit") return "text-blue-400";
   if (status === "Delivered") return "text-green-400";
   return "text-slate-300";
+}
+
+function clean(value?: string) {
+  return value?.trim().toLowerCase() || "";
 }

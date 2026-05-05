@@ -161,9 +161,11 @@ if (!allowed) {
 
   return (
     <div className="min-h-screen bg-[#050A11] text-white p-3 sm:p-6">
-      <h1 className="text-3xl font-bold">
-        TRACON <span className="text-blue-500 font-light">NEXUS</span>
-      </h1>
+      <img
+  src="/logo-wordmark.svg"
+  alt="Tracon Nexus"
+  className="mb-4 h-auto w-[220px]"
+/>
 
       <p className="text-slate-400 mt-2">Driver View</p>
 

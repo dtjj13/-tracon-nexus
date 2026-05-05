@@ -61,9 +61,11 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[#050A11] text-white flex items-center justify-center p-6">
       <div className="w-full max-w-md rounded-xl border border-slate-800 bg-[#07101A] p-6">
-        <h1 className="text-3xl font-bold">
-          TRACON <span className="text-blue-500 font-light">NEXUS</span>
-        </h1>
+        <img
+  src="/logo-wordmark.svg"
+  alt="Tracon Nexus"
+  className="mx-auto mb-6 h-auto w-[240px]"
+/>
 
         <p className="text-slate-400 mt-2">Sign in to continue</p>
 
