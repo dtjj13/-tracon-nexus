@@ -16,16 +16,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const output = response.output_text || "{}";
+    const output = JSON.stringify(response.output || "{}");
 
 console.log("AI OUTPUT:", output);
 
-try {
-  const cleaned = output
-    .replace(/```json/g, "")
-    .replace(/```/g, "")
-    .trim();
+const cleaned = output
+  .replace(/```json/g, "")
+  .replace(/```/g, "")
+  .trim();
 
+try {
   const parsed = JSON.parse(cleaned);
 
   return NextResponse.json(parsed);
