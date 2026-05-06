@@ -64,8 +64,27 @@ if (!allowed) {
   };
 
   useEffect(() => {
-    fetchLoads();
-  }, []);
+  fetchLoads();
+
+  const channel = supabase
+    .channel("driver-loads-realtime")
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "loads",
+      },
+      () => {
+        fetchLoads();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, []);
 
   // 🔥 UPDATE STATUS
   const updateStatus = async (loadId: string, status: string) => {
@@ -182,12 +201,40 @@ if (!allowed) {
             <p>Driver: {load.driver}</p>
             <p className="text-blue-400 mt-1">{load.status}</p>
 
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <button onClick={() => updateStatus(load.id, "Arrived at Pickup")} className="bg-slate-700 p-2 rounded">Arrived</button>
-              <button onClick={() => updateStatus(load.id, "Loaded")} className="bg-blue-600 p-2 rounded">Loaded</button>
-              <button onClick={() => updateStatus(load.id, "In Transit")} className="bg-blue-600 p-2 rounded">Transit</button>
-              <button onClick={() => updateStatus(load.id, "Delivered")} className="bg-green-600 p-2 rounded">Delivered</button>
-            </div>
+           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+  <button
+    onClick={() => updateStatus(load.id, "Arrived at Pickup")}
+    className={`rounded-xl py-2 text-sm font-medium transition ${
+      load.status === "Arrived at Pickup"
+        ? "bg-indigo-600 text-white shadow-[0_0_18px_rgba(99,102,241,0.45)]"
+        : "bg-[#111827] text-slate-300 hover:bg-slate-700"
+    }`}
+  >
+    Arrived
+  </button>
+
+  <button
+    onClick={() => updateStatus(load.id, "In Transit")}
+    className={`rounded-xl py-2 text-sm font-medium transition ${
+      load.status === "In Transit"
+        ? "bg-blue-600 text-white shadow-[0_0_18px_rgba(37,99,235,0.45)]"
+        : "bg-[#111827] text-slate-300 hover:bg-slate-700"
+    }`}
+  >
+    Transit
+  </button>
+
+  <button
+    onClick={() => updateStatus(load.id, "Delivered")}
+    className={`rounded-xl py-2 text-sm font-medium transition ${
+      load.status === "Delivered"
+        ? "bg-green-600 text-white shadow-[0_0_18px_rgba(34,197,94,0.45)]"
+        : "bg-[#111827] text-slate-300 hover:bg-slate-700"
+    }`}
+  >
+    Delivered
+  </button>
+</div>
 
             <div className="mt-4">
               {trackingLoadId === load.id ? (

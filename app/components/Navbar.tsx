@@ -15,12 +15,18 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
+type CompanySettings = {
+  company_name?: string;
+  company_logo_url?: string;
+};
+
 export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
 
   const [email, setEmail] = useState("");
   const [open, setOpen] = useState(false);
+  const [company, setCompany] = useState<CompanySettings | null>(null);
 
   useEffect(() => {
     const getUser = async () => {
@@ -31,7 +37,18 @@ export default function Navbar() {
       setEmail(user?.email || "");
     };
 
+    const getCompany = async () => {
+      const { data, error } = await supabase
+        .from("company_settings")
+        .select("*")
+        .limit(1)
+        .single();
+
+      if (!error) setCompany(data);
+    };
+
     getUser();
+    getCompany();
   }, []);
 
   const logout = async () => {
@@ -61,16 +78,38 @@ export default function Navbar() {
   return (
     <>
       <div className="mb-6 border-b border-slate-800 pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Link href="/dispatch" className="flex items-center">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <Link href="/dispatch" className="flex items-center gap-4">
+            {/* Carrier Brand */}
+            <div className="flex items-center gap-3">
+              {company?.company_logo_url ? (
+                <img
+                  src={company.company_logo_url}
+                  alt={company.company_name || "Carrier Logo"}
+                  className="h-12 w-auto rounded-lg object-contain"
+                />
+              ) : (
+                <div className="flex h-12 min-w-12 items-center justify-center rounded-xl border border-slate-700 bg-[#07101A] px-3 text-sm font-semibold text-white">
+                  {company?.company_name || "Carrier"}
+                </div>
+              )}
+            </div>
+
+            {/* Divider */}
+            <div className="hidden h-10 w-px bg-slate-700 sm:block" />
+
+            {/* Tracon Brand */}
             <Image
               src="/logo-wordmark.svg"
               alt="Tracon Nexus"
-              width={230}
-              height={64}
-              className="h-auto w-[230px]"
+              width={210}
+              height={58}
+              className="h-auto w-[210px]"
               priority
             />
+            <p className="mt-2 text-xs text-slate-500">
+  Powered by TRACON Nexus
+</p>
           </Link>
 
           <div className="flex items-center gap-3">
@@ -106,13 +145,19 @@ export default function Navbar() {
         }`}
       >
         <div className="mb-8 flex items-center justify-between">
-          <Image
-            src="/logo-wordmark.svg"
-            alt="Tracon Nexus"
-            width={230}
-            height={64}
-            className="h-auto w-[210px]"
-          />
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-[#00A3FF]">
+             {company?.company_name || "Twelve 10 Logistics"}
+            </p>
+
+            <Image
+              src="/logo-wordmark.svg"
+              alt="Tracon Nexus"
+              width={200}
+              height={55}
+              className="mt-2 h-auto w-[200px]"
+            />
+          </div>
 
           <button
             onClick={() => setOpen(false)}
