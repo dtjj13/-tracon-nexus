@@ -16,27 +16,41 @@ export async function POST(req: Request) {
       );
     }
 
-    const output = JSON.stringify(response.output || "{}");
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        {
+          role: "system",
+          content:
+            "Extract trucking rate confirmation load details. Return only valid JSON.",
+        },
+        {
+          role: "user",
+          content: `Extract these fields from this rate confirmation text:
 
-console.log("AI OUTPUT:", output);
-
-const cleaned = output
-  .replace(/```json/g, "")
-  .replace(/```/g, "")
-  .trim();
-
-try {
-  const parsed = JSON.parse(cleaned);
-
-  return NextResponse.json(parsed);
-} catch (parseError) {
-  console.error("JSON PARSE ERROR:", parseError);
-
-  return NextResponse.json({
-    error: "AI returned invalid JSON",
-    raw: output,
-  });
+{
+  "broker_load_id": "",
+  "broker_name": "",
+  "pickup": "",
+  "dropoff": "",
+  "rate": "",
+  "loaded_miles": "",
+  "pickup_date": "",
+  "delivery_date": "",
+  "bol_number": ""
 }
+
+Text:
+${text}`,
+        },
+      ],
+    });
+
+    const output = JSON.stringify((response as any).output || "{}");
+
+    return NextResponse.json({
+      raw: output,
+    });
   } catch (error) {
     console.error("Rate con scan error:", error);
 
