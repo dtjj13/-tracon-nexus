@@ -107,9 +107,7 @@ export default function Navbar() {
               className="h-auto w-[210px]"
               priority
             />
-            <p className="mt-2 text-xs text-slate-500">
-  Powered by TRACON Nexus
-</p>
+            
           </Link>
 
           <div className="flex items-center gap-3">
@@ -146,7 +144,7 @@ export default function Navbar() {
       >
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-[#00A3FF]">
+            <p className="text-xs uppercase tracking-[0.25em] text-[#16BFFF] font-semibold">
              {company?.company_name || "Twelve 10 Logistics"}
             </p>
 
@@ -169,9 +167,8 @@ export default function Navbar() {
 
         <div className="flex flex-col gap-3">
           {navLink("/owner", <LayoutDashboard size={18} />, "Owner Dashboard")}
-          {navLink("/dispatch", <Truck size={18} />, "Dispatch Board")}
-          {navLink("/settings", <Settings size={18} />, "Drivers")}
-          {navLink("/settings/users", <Users size={18} />, "Users & Roles")}
+{navLink("/dispatch", <Truck size={18} />, "Dispatch Board")}
+{navLink("/settings", <Users size={18} />, "Management")}
         </div>
 
         <div className="absolute bottom-6 left-6 right-6">
@@ -187,6 +184,9 @@ export default function Navbar() {
             Logout
           </button>
         </div>
+      </div>
+         <div className="fixed bottom-3 right-4 z-40 text-[11px] text-slate-500 tracking-wide">
+        Powered by <span className="text-[#16BFFF]">TRACON Nexus</span> v0.2 Alpha
       </div>
     </>
   );

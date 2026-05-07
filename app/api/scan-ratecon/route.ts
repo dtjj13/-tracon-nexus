@@ -12,9 +12,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const client = new OpenAI({
-      apiKey,
-    });
+    const client = new OpenAI({ apiKey });
 
     const { text } = await req.json();
 
@@ -25,18 +23,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const response = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
         {
           role: "system",
           content:
-            "Extract trucking rate confirmation load details. Return only valid JSON.",
+            "You extract trucking rate confirmation details. Return only valid JSON. No markdown.",
         },
         {
           role: "user",
-          content: `Extract these fields from this rate confirmation text:
+          content: `
+Extract these fields from this rate confirmation text.
 
+Return JSON exactly like this:
 {
   "broker_load_id": "",
   "broker_name": "",
@@ -50,16 +51,16 @@ export async function POST(req: Request) {
 }
 
 Text:
-${text}`,
+${text}
+          `,
         },
       ],
     });
 
-    const output = JSON.stringify((response as any).output || "{}");
+    const content = completion.choices[0]?.message?.content || "{}";
+    const parsed = JSON.parse(content);
 
-    return NextResponse.json({
-      raw: output,
-    });
+    return NextResponse.json(parsed);
   } catch (error) {
     console.error("Rate con scan error:", error);
 

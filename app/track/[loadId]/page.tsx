@@ -8,20 +8,27 @@ type Load = {
   id: string;
   tracon_id: string;
   broker_load_id?: string;
-  bol_number?: string;
   pickup: string;
   dropoff: string;
-  driver: string;
   status: string;
-  rate_con_url?: string;
-  bol_url?: string;
-  pod_url?: string;
+  driver_name?: string;
+  driver_phone?: string;
   driver_lat?: number;
   driver_lng?: number;
-  location_updated_at?: string;
+  bol_url?: string;
+  pod_url?: string;
+  rate_con_url?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
-const timelineSteps = ["Arrived at Pickup", "Loaded", "In Transit", "Delivered"];
+const statuses = [
+  "Pending",
+  "Assigned",
+  "Arrived at Pickup",
+  "In Transit",
+  "Delivered",
+];
 
 export default function TrackingPage() {
   const params = useParams();
@@ -30,37 +37,19 @@ export default function TrackingPage() {
   const [load, setLoad] = useState<Load | null>(null);
 
   useEffect(() => {
-    const loadOnce = async () => {
-      const { data, error } = await supabase
-        .from("loads")
-        .select("*")
-        .eq("id", loadId)
-        .single();
-
-      if (error) {
-        console.error(error);
-        setLoad(null);
-        return;
-      }
-
-      setLoad(data);
-    };
-
-    loadOnce();
+    fetchLoad();
 
     const channel = supabase
-      .channel(`load-${loadId}`)
+      .channel(`tracking-${loadId}`)
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          event: "*",
           schema: "public",
           table: "loads",
           filter: `id=eq.${loadId}`,
         },
-        (payload) => {
-          setLoad(payload.new as Load);
-        }
+        () => fetchLoad()
       )
       .subscribe();
 
@@ -69,198 +58,323 @@ export default function TrackingPage() {
     };
   }, [loadId]);
 
+  const fetchLoad = async () => {
+    const { data, error } = await supabase
+      .from("loads")
+      .select("*")
+      .eq("id", loadId)
+      .single();
+
+    if (!error && data) setLoad(data);
+  };
+
   if (!load) {
     return (
-      <div className="min-h-screen bg-[#050A11] text-white p-6">
-       <div className="mb-4">
-  <img
-    src="/logo-wordmark.svg"
-    alt="Tracon Nexus"
-    className="h-10 w-auto"
-  />
-  
-</div>
-        <p className="mt-6 text-slate-400">Load not found.</p>
+      <div className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
+        Loading shipment...
       </div>
     );
   }
 
-  const currentIndex = timelineSteps.indexOf(load.status);
+  const currentStep = statuses.findIndex(
+    (s) => s.toLowerCase() === load.status?.toLowerCase()
+  );
+
+  const hasLocation = !!load.driver_lat && !!load.driver_lng;
 
   return (
-    <div className="min-h-screen bg-[#050A11] text-white p-6">
-      <div className="mb-4">
-  <img
-    src="/logo-wordmark.svg"
-    alt="Tracon Nexus"
-    className="h-10 w-auto"
-  />
-  
-</div>
+    <div className="min-h-screen bg-[#020617] p-4 text-white sm:p-6">
+      <div className="mx-auto max-w-6xl space-y-6">
+        {/* HEADER */}
+        <div className="rounded-3xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-6 shadow-[0_0_40px_rgba(0,0,0,0.45)]">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-[#16BFFF]">
+                Live Shipment Tracking
+              </p>
 
-      
+              <h1 className="mt-2 text-2xl font-bold text-white">
+                {load.broker_load_id || load.tracon_id}
+              </h1>
 
-      <div className="mt-6 rounded-xl border border-blue-900 bg-blue-950/30 p-6">
-        <h2 className="text-xl font-bold">{load.tracon_id}</h2>
+              <p className="mt-2 text-sm text-slate-400">
+                Real-time freight visibility with shipment status and location updates.
+              </p>
+            </div>
 
-        <div className="grid grid-cols-2 gap-4 mt-4">
-          <Info label="Broker Load ID" value={load.broker_load_id || "-"} />
-          <Info label="BOL Number" value={load.bol_number || "-"} />
-          <Info label="Current Status" value={load.status} blue />
-          <Info label="Driver" value={load.driver} />
-          <Info label="Pickup" value={load.pickup} />
-          <Info label="Dropoff" value={load.dropoff} />
-        </div>
+            <div className="rounded-2xl border border-slate-700 bg-[#0B1522] px-5 py-4">
+              <p className="text-xs uppercase tracking-widest text-slate-500">
+                Current Status
+              </p>
 
-        <div className="mt-6 rounded-lg border border-slate-800 bg-[#07101A] p-4">
-          <p className="font-semibold text-blue-400">Status Timeline</p>
-
-          <div className="mt-6">
-            <div className="relative flex items-center justify-between">
-              <div className="absolute left-0 right-0 top-4 h-1 bg-slate-800 rounded" />
-
-              <div
-                className="absolute left-0 top-4 h-1 bg-blue-500 rounded transition-all duration-500"
-                style={{
-                  width:
-                    currentIndex <= 0
-                      ? "0%"
-                      : `${(currentIndex / (timelineSteps.length - 1)) * 100}%`,
-                }}
-              />
-
-              {timelineSteps.map((step, index) => {
-                const isComplete = index < currentIndex;
-                const isCurrent = index === currentIndex;
-
-                return (
-                  <div
-                    key={step}
-                    className="relative z-10 flex flex-col items-center w-1/4"
-                  >
-                    <div
-                      className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold border ${
-                        isComplete
-                          ? "bg-green-500 border-green-500 text-white"
-                          : isCurrent
-                          ? "bg-blue-500 border-blue-500 text-white"
-                          : "bg-[#050A11] border-slate-600 text-slate-500"
-                      }`}
-                    >
-                      {isComplete ? "✓" : index + 1}
-                    </div>
-
-                    <p
-                      className={`mt-3 text-xs text-center ${
-                        isComplete || isCurrent
-                          ? "text-white"
-                          : "text-slate-500"
-                      }`}
-                    >
-                      {step}
-                    </p>
-                  </div>
-                );
-              })}
+              <p className={`mt-2 text-lg font-bold ${statusColor(load.status)}`}>
+                {load.status}
+              </p>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 rounded-lg border border-blue-900 bg-blue-950/30 p-4">
-          <p className="font-semibold text-blue-400">Live Tracking</p>
-
-          {load.driver_lat && load.driver_lng ? (
-            <div className="mt-2">
-              <p className="text-slate-300">
-                Location updated:{" "}
-                {load.location_updated_at
-                  ? new Date(load.location_updated_at).toLocaleString()
-                  : "Just now"}
+        {/* LIVE TRACKING MAP */}
+        <div className="rounded-3xl border border-slate-800 bg-[#07101A] p-5 shadow-[0_0_30px_rgba(0,0,0,0.45)]">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-[#16BFFF]">
+                Live Tracking
               </p>
-
-              <p className="text-slate-400 mt-2">
-                Lat: {load.driver_lat}, Lng: {load.driver_lng}
+              <h2 className="mt-2 text-lg font-semibold text-white">
+                Driver Location
+              </h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Location updates automatically when the driver app reports position.
               </p>
+            </div>
 
-              <a
-                href={`https://www.google.com/maps?q=${load.driver_lat},${load.driver_lng}`}
-                target="_blank"
-                className="inline-block mt-3 text-green-400 underline"
-              >
-                Open Location on Map
-              </a>
+            <div
+              className={`rounded-xl border px-4 py-2 text-sm ${
+                hasLocation
+                  ? "border-green-500/30 bg-green-500/10 text-green-300"
+                  : "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"
+              }`}
+            >
+              {hasLocation ? "Live Location Active" : "Awaiting Location"}
+            </div>
+          </div>
+
+          {hasLocation ? (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="rounded-2xl border border-slate-800 bg-[#0B1522] p-4">
+                <div className="flex items-center gap-3">
+                  <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-[#16BFFF]/20">
+                    <div className="absolute h-12 w-12 animate-ping rounded-full bg-[#16BFFF]/20" />
+                    <span className="relative text-xl">🚚</span>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      Truck Position
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      Last reported location
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3 text-sm">
+                  <div>
+                    <p className="text-slate-500">Latitude</p>
+                    <p className="font-mono text-white">{load.driver_lat}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-500">Longitude</p>
+                    <p className="font-mono text-white">{load.driver_lng}</p>
+                  </div>
+
+                  <a
+                    href={`https://www.google.com/maps?q=${load.driver_lat},${load.driver_lng}`}
+                    target="_blank"
+                    className="block rounded-xl bg-gradient-to-r from-[#1E6BFF] to-[#00A3FF] px-4 py-2 text-center text-sm font-semibold text-white"
+                  >
+                    Open in Google Maps
+                  </a>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0B1522] lg:col-span-2">
+                <iframe
+                  src={`https://www.google.com/maps?q=${load.driver_lat},${load.driver_lng}&z=10&output=embed`}
+                  className="h-[320px] w-full border-0"
+                  loading="lazy"
+                />
+              </div>
             </div>
           ) : (
-            <p className="text-slate-400 mt-2">
-              Driver location has not been shared yet.
-            </p>
+            <div className="rounded-2xl border border-dashed border-slate-700 bg-[#0B1522] p-8 text-center">
+              <p className="text-lg font-semibold text-white">
+                No driver location reported yet
+              </p>
+              <p className="mt-2 text-sm text-slate-400">
+                Once the driver app sends GPS data, the live map will appear here.
+              </p>
+            </div>
           )}
         </div>
 
-        <DocumentLink
-          title="Rate Confirmation"
-          fileUrl={load.rate_con_url}
-          linkText="View Rate Con"
-          emptyText="No Rate Con uploaded yet"
-        />
+        {/* ROUTE */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <InfoCard title="Pickup" value={load.pickup} />
+          <InfoCard title="Delivery" value={load.dropoff} />
+        </div>
 
-        <DocumentLink
-          title="Bill of Lading"
-          fileUrl={load.bol_url}
-          linkText="View BOL"
-          emptyText="No BOL uploaded yet"
-        />
+        {/* TIMELINE */}
+        <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-6">
+          <div className="mb-6">
+            <h2 className="text-xl font-bold text-white">Shipment Timeline</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Real-time load progression updates.
+            </p>
+          </div>
 
-        <DocumentLink
-          title="Proof of Delivery"
-          fileUrl={load.pod_url}
-          linkText="View POD"
-          emptyText="No POD uploaded yet"
-        />
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            {statuses.map((status, index) => {
+              const active = index <= currentStep;
+
+              return (
+                <div key={status} className="flex flex-1 items-center gap-3">
+                  <div
+                    className={`flex h-12 w-12 items-center justify-center rounded-full border text-sm font-bold transition-all duration-300 ${
+                      active
+                        ? "border-[#16BFFF] bg-[#16BFFF]/20 text-[#16BFFF] shadow-[0_0_20px_rgba(22,191,255,0.35)]"
+                        : "border-slate-700 bg-[#0B1522] text-slate-500"
+                    }`}
+                  >
+                    {index + 1}
+                  </div>
+
+                  <div className="flex-1">
+                    <p className={`text-sm font-medium ${active ? "text-white" : "text-slate-500"}`}>
+                      {status}
+                    </p>
+
+                    {index < currentStep && (
+                      <p className="text-xs text-[#16BFFF]">Completed</p>
+                    )}
+
+                    {index === currentStep && (
+                      <p className="text-xs text-green-400">Active</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* DRIVER + DOCS */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
+            <h2 className="text-lg font-semibold text-white">
+              Driver Information
+            </h2>
+
+            <div className="mt-4 space-y-3 text-sm">
+              <div>
+                <p className="text-slate-500">Driver</p>
+                <p className="text-white">{load.driver_name || "Assigned"}</p>
+              </div>
+<div>
+  <p className="text-slate-500">Driver Phone</p>
+  <p className="text-white">
+    {load.driver_phone || "Not available"}
+  </p>
+</div>
+              <div>
+                <p className="text-slate-500">Tracking Status</p>
+                <p className={`${statusColor(load.status)} font-semibold`}>
+                  {load.status}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
+            <h2 className="text-lg font-semibold text-white">
+              Shipment Documents
+            </h2>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <DocumentCard label="Rate Con" url={load.rate_con_url} />
+              <DocumentCard label="BOL" url={load.bol_url} />
+              <DocumentCard label="POD" url={load.pod_url} highlight={!!load.pod_url} />
+            </div>
+          </div>
+        </div>
+
+        {load.status?.toLowerCase() === "delivered" && !load.pod_url && (
+          <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-5 shadow-[0_0_25px_rgba(239,68,68,0.15)]">
+            <h2 className="text-lg font-semibold text-red-300">
+              Waiting for Proof of Delivery
+            </h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Shipment has been marked delivered but POD documentation has not yet been uploaded.
+            </p>
+          </div>
+        )}
+
+        {load.pod_url && (
+          <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 shadow-[0_0_25px_rgba(34,197,94,0.15)]">
+            <h2 className="text-lg font-semibold text-green-300">
+              Proof of Delivery Uploaded
+            </h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Final delivery documentation has been completed successfully.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="fixed bottom-3 right-4 text-[11px] tracking-wide text-slate-500">
+        Powered by <span className="text-[#16BFFF]">TRACON Nexus</span>
       </div>
     </div>
   );
 }
 
-function Info({
-  label,
-  value,
-  blue,
-}: {
-  label: string;
-  value: string;
-  blue?: boolean;
-}) {
+function InfoCard({ title, value }: { title: string; value?: string }) {
   return (
-    <div>
-      <p className="text-slate-400">{label}</p>
-      <p className={`font-semibold ${blue ? "text-blue-400" : ""}`}>{value}</p>
+    <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
+      <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
+        {title}
+      </p>
+      <h2 className="mt-2 text-lg font-semibold text-white">{value || "-"}</h2>
     </div>
   );
 }
 
-function DocumentLink({
-  title,
-  fileUrl,
-  linkText,
-  emptyText,
+function DocumentCard({
+  label,
+  url,
+  highlight,
 }: {
-  title: string;
-  fileUrl?: string;
-  linkText: string;
-  emptyText: string;
+  label: string;
+  url?: string;
+  highlight?: boolean;
 }) {
-  return (
-    <div className="mt-4">
-      <p className="font-semibold">{title}</p>
+  if (!url) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-[#0B1522] p-4 text-center">
+        <p className="text-sm text-slate-500">{label}</p>
+        <p className="mt-2 text-xs text-slate-600">Not Uploaded</p>
+      </div>
+    );
+  }
 
-      {fileUrl ? (
-        <a href={fileUrl} target="_blank" className="text-green-400 underline">
-          {linkText}
-        </a>
-      ) : (
-        <p className="text-slate-500 mt-2">{emptyText}</p>
-      )}
-    </div>
+  return (
+    <a
+      href={url}
+      target="_blank"
+      className={`rounded-xl border p-4 text-center transition hover:scale-[1.02] ${
+        highlight
+          ? "border-green-500/40 bg-green-500/10"
+          : "border-[#16BFFF]/30 bg-[#16BFFF]/10"
+      }`}
+    >
+      <p className="text-sm font-semibold text-white">{label}</p>
+      <p className={`mt-2 text-xs ${highlight ? "text-green-300" : "text-[#16BFFF]"}`}>
+        View Document
+      </p>
+    </a>
   );
+}
+
+function statusColor(status?: string) {
+  const clean = status?.toLowerCase();
+
+  if (clean === "pending") return "text-yellow-400";
+  if (clean === "assigned") return "text-cyan-400";
+  if (clean === "arrived at pickup") return "text-indigo-400";
+  if (clean === "in transit") return "text-[#16BFFF]";
+  if (clean === "delivered") return "text-green-400";
+
+  return "text-slate-300";
 }

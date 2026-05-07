@@ -14,6 +14,7 @@ type Driver = {
   pay_type?: string;
   pay_rate?: number;
   truck_mpg?: number;
+   phone?: string;
 };
 
 type Load = {
@@ -159,54 +160,47 @@ export default function DispatchPage() {
   };
 
   const scanRateCon = async () => {
-    if (!rateConFile) {
-      alert("Upload a rate confirmation PDF first");
+  if (!rateConFile) {
+    alert("Upload a rate confirmation first");
+    return;
+  }
+
+  try {
+    setScanningRateCon(true);
+
+    const formData = new FormData();
+    formData.append("file", rateConFile);
+
+    const response = await fetch("/api/scan-ratecon", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      alert(data.error);
       return;
     }
 
-    try {
-      setScanningRateCon(true);
+    setForm((prev) => ({
+      ...prev,
+      broker_load_id: data.broker_load_id || prev.broker_load_id,
+      bol_number: data.bol_number || prev.bol_number,
+      pickup: data.pickup || prev.pickup,
+      dropoff: data.dropoff || prev.dropoff,
+      rate: data.rate || prev.rate,
+      loaded_miles: data.loaded_miles || prev.loaded_miles,
+    }));
 
-      const fileText = await rateConFile.text();
-
-      if (!fileText.trim()) {
-        alert("No text found in this rate confirmation");
-        return;
-      }
-
-      const response = await fetch("/api/scan-ratecon", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ text: fileText }),
-      });
-
-      const data = await response.json();
-
-      if (data.error) {
-        alert(data.error);
-        return;
-      }
-
-      setForm((prev) => ({
-        ...prev,
-        broker_load_id: data.broker_load_id || prev.broker_load_id,
-        bol_number: data.bol_number || prev.bol_number,
-        pickup: data.pickup || prev.pickup,
-        dropoff: data.dropoff || prev.dropoff,
-        rate: data.rate || prev.rate,
-        loaded_miles: data.loaded_miles || prev.loaded_miles,
-      }));
-
-      alert("Rate confirmation scanned. Review details before creating load.");
-    } catch (error) {
-      console.error(error);
-      alert("Failed to scan rate confirmation");
-    } finally {
-      setScanningRateCon(false);
-    }
-  };
+    alert("Rate confirmation scanned. Review before creating load.");
+  } catch (error) {
+    console.error(error);
+    alert("Failed to scan rate confirmation");
+  } finally {
+    setScanningRateCon(false);
+  }
+};
 
   const calculateDriverPay = (driver: Driver, rate: number, loadedMiles: number) => {
     if (driver.pay_type === "CPM") return loadedMiles * Number(driver.pay_rate || 0);
@@ -257,6 +251,7 @@ export default function DispatchPage() {
         driver: selectedDriver.email,
         driver_name: selectedDriver.name,
         driver_email: selectedDriver.email,
+        driver_phone: selectedDriver.phone || "",
         status: form.status,
         rate,
         loaded_miles: loadedMiles,
@@ -319,13 +314,14 @@ export default function DispatchPage() {
     const { error } = await supabase
       .from("loads")
       .update({
-        driver: selectedDriver.email,
-        driver_name: selectedDriver.name,
-        driver_email: selectedDriver.email,
-        driver_pay: driverPay,
-        profit,
-        status: "Assigned",
-      })
+  driver: selectedDriver.email,
+  driver_name: selectedDriver.name,
+  driver_email: selectedDriver.email,
+  driver_phone: selectedDriver.phone || "",
+  driver_pay: driverPay,
+  profit,
+  status: "Assigned",
+})
       .eq("id", loadId);
 
     if (error) return alert(error.message);
