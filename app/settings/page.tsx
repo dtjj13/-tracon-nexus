@@ -383,15 +383,10 @@ export default function SettingsPage() {
 function Header() {
   return (
     <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5 shadow-[0_0_30px_rgba(0,0,0,0.45)]">
-      <p className="text-xs uppercase tracking-[0.3em] text-[#16BFFF]">
-        Management
-      </p>
-      <h1 className="mt-2 text-base uppercase tracking-[0.35em] text-white">
-        Settings Control Center
-      </h1>
-      <p className="mt-1 text-sm text-slate-400">
-        Manage company branding, drivers, pay rules, users, and permissions.
-      </p>
+     <h1 className="text-xl font-semibold text-white">
+  Settings
+</h1>
+      
     </div>
   );
 }
@@ -416,9 +411,7 @@ function CompanySection({
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="font-semibold text-white">Company Branding</h2>
-          <p className="text-xs text-slate-500">
-            Carrier logo and company identity.
-          </p>
+          
         </div>
 
         {company?.company_logo_url && (
@@ -479,9 +472,7 @@ function DriverSection({
           <h2 className="font-semibold text-white">
             {editingDriverId ? "Edit Driver" : "Add Driver"}
           </h2>
-          <p className="text-xs text-slate-500">
-            Driver profile and pay rules.
-          </p>
+          
         </div>
 
         {editingDriverId && (
@@ -608,9 +599,7 @@ function UsersSection({
           <h2 className="text-xl font-bold text-white">
             {editingUserId ? "Edit User" : "Users & Roles"}
           </h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Manage access, roles, and permissions.
-          </p>
+          
         </div>
 
         {editingUserId && (

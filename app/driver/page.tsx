@@ -19,6 +19,7 @@ type Load = {
   driver_lat?: number;
   driver_lng?: number;
   location_updated_at?: string;
+
 };
 
 export default function DriverPage() {
@@ -88,18 +89,38 @@ if (!allowed) {
 
   // 🔥 UPDATE STATUS
   const updateStatus = async (loadId: string, status: string) => {
-    const { error } = await supabase
-      .from("loads")
-      .update({ status })
-      .eq("id", loadId);
+  const cleanStatus = status.trim();
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
+  const timestampUpdate: {
+    assigned_at?: string;
+    arrived_pickup_at?: string;
+    in_transit_at?: string;
+    delivered_at?: string;
+  } = {};
 
-    fetchLoads();
-  };
+  if (cleanStatus === "Assigned") timestampUpdate.assigned_at = new Date().toISOString();
+  if (cleanStatus === "Arrived at Pickup") timestampUpdate.arrived_pickup_at = new Date().toISOString();
+  if (cleanStatus === "In Transit") timestampUpdate.in_transit_at = new Date().toISOString();
+  if (cleanStatus === "Delivered") timestampUpdate.delivered_at = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("loads")
+    .update({
+      status: cleanStatus,
+      ...timestampUpdate,
+    })
+    .eq("id", loadId);
+
+  if (error) return alert(error.message);
+await supabase.from("notifications").insert({
+  title: `Load ${loadId.slice(0, 6)} Updated`,
+  message: `Status changed to ${cleanStatus}`,
+  load_id: loadId,
+  type: cleanStatus.toLowerCase(),
+});
+  fetchLoads();
+};
+   
 
   // 🔥 GPS UPDATE
   const updateLocation = (loadId: string) => {

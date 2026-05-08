@@ -20,14 +20,34 @@ type Load = {
   rate_con_url?: string;
   created_at?: string;
   updated_at?: string;
+  assigned_at?: string;
+  arrived_pickup_at?: string;
+  in_transit_at?: string;
+  delivered_at?: string;
+  pod_uploaded_at?: string;
 };
 
 const statuses = [
-  "Pending",
-  "Assigned",
-  "Arrived at Pickup",
-  "In Transit",
-  "Delivered",
+  {
+    label: "Pending",
+    key: "created_at",
+  },
+  {
+    label: "Assigned",
+    key: "assigned_at",
+  },
+  {
+    label: "Arrived at Pickup",
+    key: "arrived_pickup_at",
+  },
+  {
+    label: "In Transit",
+    key: "in_transit_at",
+  },
+  {
+    label: "Delivered",
+    key: "delivered_at",
+  },
 ];
 
 export default function TrackingPage() {
@@ -77,7 +97,7 @@ export default function TrackingPage() {
   }
 
   const currentStep = statuses.findIndex(
-    (s) => s.toLowerCase() === load.status?.toLowerCase()
+    (step) => step.label.toLowerCase() === load.status?.toLowerCase()
   );
 
   const hasLocation = !!load.driver_lat && !!load.driver_lng;
@@ -97,9 +117,7 @@ export default function TrackingPage() {
                 {load.broker_load_id || load.tracon_id}
               </h1>
 
-              <p className="mt-2 text-sm text-slate-400">
-                Real-time freight visibility with shipment status and location updates.
-              </p>
+              
             </div>
 
             <div className="rounded-2xl border border-slate-700 bg-[#0B1522] px-5 py-4">
@@ -124,9 +142,7 @@ export default function TrackingPage() {
               <h2 className="mt-2 text-lg font-semibold text-white">
                 Driver Location
               </h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Location updates automatically when the driver app reports position.
-              </p>
+              
             </div>
 
             <div
@@ -193,9 +209,7 @@ export default function TrackingPage() {
               <p className="text-lg font-semibold text-white">
                 No driver location reported yet
               </p>
-              <p className="mt-2 text-sm text-slate-400">
-                Once the driver app sends GPS data, the live map will appear here.
-              </p>
+              
             </div>
           )}
         </div>
@@ -210,40 +224,48 @@ export default function TrackingPage() {
         <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-6">
           <div className="mb-6">
             <h2 className="text-xl font-bold text-white">Shipment Timeline</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Real-time load progression updates.
-            </p>
+            
           </div>
 
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            {statuses.map((status, index) => {
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+            {statuses.map((step, index) => {
               const active = index <= currentStep;
+              const timestamp = load[step.key as keyof Load] as string | undefined;
 
               return (
-                <div key={status} className="flex flex-1 items-center gap-3">
+                <div
+                  key={step.label}
+                  className={`rounded-2xl border p-4 transition ${
+                    active
+                      ? "border-[#16BFFF]/40 bg-[#16BFFF]/10"
+                      : "border-slate-800 bg-[#0B1522]"
+                  }`}
+                >
                   <div
-                    className={`flex h-12 w-12 items-center justify-center rounded-full border text-sm font-bold transition-all duration-300 ${
+                    className={`mb-3 flex h-10 w-10 items-center justify-center rounded-full border text-sm font-bold ${
                       active
-                        ? "border-[#16BFFF] bg-[#16BFFF]/20 text-[#16BFFF] shadow-[0_0_20px_rgba(22,191,255,0.35)]"
-                        : "border-slate-700 bg-[#0B1522] text-slate-500"
+                        ? "border-[#16BFFF] bg-[#16BFFF]/20 text-[#16BFFF]"
+                        : "border-slate-700 text-slate-500"
                     }`}
                   >
                     {index + 1}
                   </div>
 
-                  <div className="flex-1">
-                    <p className={`text-sm font-medium ${active ? "text-white" : "text-slate-500"}`}>
-                      {status}
-                    </p>
+                  <p className={`text-sm font-semibold ${active ? "text-white" : "text-slate-500"}`}>
+                    {step.label}
+                  </p>
 
-                    {index < currentStep && (
-                      <p className="text-xs text-[#16BFFF]">Completed</p>
-                    )}
+                  <p className="mt-1 text-xs text-slate-500">
+                    {timestamp ? formatDateTime(timestamp) : "No timestamp yet"}
+                  </p>
 
-                    {index === currentStep && (
-                      <p className="text-xs text-green-400">Active</p>
-                    )}
-                  </div>
+                  {index < currentStep && (
+                    <p className="mt-2 text-xs text-[#16BFFF]">Completed</p>
+                  )}
+
+                  {index === currentStep && (
+                    <p className="mt-2 text-xs text-green-400">Active</p>
+                  )}
                 </div>
               );
             })}
@@ -262,12 +284,12 @@ export default function TrackingPage() {
                 <p className="text-slate-500">Driver</p>
                 <p className="text-white">{load.driver_name || "Assigned"}</p>
               </div>
-<div>
-  <p className="text-slate-500">Driver Phone</p>
-  <p className="text-white">
-    {load.driver_phone || "Not available"}
-  </p>
-</div>
+
+              <div>
+                <p className="text-slate-500">Driver Phone</p>
+                <p className="text-white">{load.driver_phone || "Not available"}</p>
+              </div>
+
               <div>
                 <p className="text-slate-500">Tracking Status</p>
                 <p className={`${statusColor(load.status)} font-semibold`}>
@@ -365,6 +387,17 @@ function DocumentCard({
       </p>
     </a>
   );
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "No timestamp yet";
+
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function statusColor(status?: string) {

@@ -283,14 +283,38 @@ export default function DispatchPage() {
   };
 
   const updateStatus = async (loadId: string, status: string) => {
-    const { error } = await supabase
-      .from("loads")
-      .update({ status: status.trim() })
-      .eq("id", loadId);
+  const cleanStatus = status.trim();
 
-    if (error) return alert(error.message);
-    fetchLoads();
-  };
+  const timestampUpdate: {
+    assigned_at?: string;
+    arrived_pickup_at?: string;
+    in_transit_at?: string;
+    delivered_at?: string;
+  } = {};
+
+  if (cleanStatus === "Assigned") timestampUpdate.assigned_at = new Date().toISOString();
+  if (cleanStatus === "Arrived at Pickup") timestampUpdate.arrived_pickup_at = new Date().toISOString();
+  if (cleanStatus === "In Transit") timestampUpdate.in_transit_at = new Date().toISOString();
+  if (cleanStatus === "Delivered") timestampUpdate.delivered_at = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("loads")
+    .update({
+      status: cleanStatus,
+      ...timestampUpdate,
+    })
+    .eq("id", loadId);
+
+  if (error) return alert(error.message);
+await supabase.from("notifications").insert({
+  title: `Load ${loadId.slice(0, 6)} Updated`,
+  message: `Status changed to ${cleanStatus}`,
+  load_id: loadId,
+  type: cleanStatus.toLowerCase(),
+});
+  fetchLoads();
+};
+    
 
   const handleDrop = async (newStatus: string) => {
     if (!draggingId) return;
@@ -388,9 +412,7 @@ export default function DispatchPage() {
               <h1 className="mt-2 text-base uppercase tracking-[0.35em] text-white">
                 Live Load Control Center
               </h1>
-              <p className="mt-1 text-sm text-slate-400">
-                Drag loads between columns to update status in real time.
-              </p>
+              
             </div>
 
             <div className="rounded-xl border border-[#1E6BFF]/40 bg-[#0B1522] px-4 py-3 text-sm shadow-[0_0_20px_rgba(30,107,255,0.12)]">
@@ -507,9 +529,7 @@ export default function DispatchPage() {
                     <h3 className={`font-semibold ${statusColor(status)}`}>
                       {status}
                     </h3>
-                    <p className={`text-xs ${draggingId ? "text-[#00A3FF]" : "text-slate-500"}`}>
-                      Drop load here to mark {status}
-                    </p>
+                    
                   </div>
 
                   <span className="rounded-full border border-slate-700 bg-[#0B1522] px-2 py-1 text-xs text-slate-300">
