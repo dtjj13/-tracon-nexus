@@ -27,6 +27,7 @@ type Load = {
   driver?: string;
   driver_name?: string;
   driver_email?: string;
+  truck_number?: string;
   status: string;
   rate_con_url?: string;
   bol_url?: string;
@@ -39,6 +40,12 @@ type Load = {
   fuel_cost?: number;
   deadhead_miles?: number;
   profit?: number;
+  assigned_at?: string;
+arrived_pickup_at?: string;
+in_transit_at?: string;
+delivered_at?: string;
+tracking_active?: boolean;
+tracking_started_at?: string;
 };
 
 const statuses = [
@@ -54,6 +61,7 @@ export default function DispatchPage() {
 
   const [loads, setLoads] = useState<Load[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [role, setRole] = useState("");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [rateConFile, setRateConFile] = useState<File | null>(null);
   const [scanningRateCon, setScanningRateCon] = useState(false);
@@ -63,6 +71,7 @@ export default function DispatchPage() {
     bol_number: string;
     pickup: string;
     dropoff: string;
+    truck_number: string;
     driver_id: string;
     status: string;
     rate: string;
@@ -74,6 +83,7 @@ export default function DispatchPage() {
     bol_number: "",
     pickup: "",
     dropoff: "",
+    truck_number: "",
     driver_id: "",
     status: "Pending",
     rate: "",
@@ -87,7 +97,23 @@ export default function DispatchPage() {
       const allowed = await hasRole(["owner", "admin", "dispatcher", "manager"]);
       if (!allowed) router.push("/driver");
     };
+const getRole = async () => {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
+  if (!user?.email) return;
+
+  const { data } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("email", user.email)
+    .single();
+
+  setRole(data?.role || "");
+};
+
+getRole();
     checkRole();
     fetchLoads();
     fetchDrivers();
@@ -248,6 +274,7 @@ export default function DispatchPage() {
         bol_number: form.bol_number,
         pickup: form.pickup,
         dropoff: form.dropoff,
+        truck_number: form.truck_number,
         driver: selectedDriver.email,
         driver_name: selectedDriver.name,
         driver_email: selectedDriver.email,
@@ -270,6 +297,7 @@ export default function DispatchPage() {
       bol_number: "",
       pickup: "",
       dropoff: "",
+      truck_number: "",
       driver_id: "",
       status: "Pending",
       rate: "",
@@ -481,6 +509,11 @@ await supabase.from("notifications").insert({
             <Input placeholder="BOL Number" value={form.bol_number} onChange={(value) => setForm({ ...form, bol_number: value })} />
             <Input placeholder="Pickup" value={form.pickup} onChange={(value) => setForm({ ...form, pickup: value })} />
             <Input placeholder="Dropoff" value={form.dropoff} onChange={(value) => setForm({ ...form, dropoff: value })} />
+            <Input
+  placeholder="Truck Number"
+  value={form.truck_number}
+  onChange={(value) => setForm({ ...form, truck_number: value })}
+/>
 
             <select
               value={form.driver_id}
@@ -542,6 +575,7 @@ await supabase.from("notifications").insert({
                     <LoadCard
                       key={load.id}
                       load={load}
+                      role={role}
                       drivers={drivers}
                       setDraggingId={setDraggingId}
                       updateStatus={updateStatus}
@@ -569,14 +603,17 @@ await supabase.from("notifications").insert({
 function LoadCard({
   load,
   drivers,
+  role, 
   setDraggingId,
   updateStatus,
   changeDriver,
   uploadFile,
   deleteLoad,
+  
 }: {
   load: Load;
   drivers: Driver[];
+  role: string;
   setDraggingId: (id: string | null) => void;
   updateStatus: (loadId: string, status: string) => void;
   changeDriver: (loadId: string, driverId: string) => void;
@@ -612,20 +649,61 @@ function LoadCard({
           {load.pickup} → {load.dropoff}
         </p>
 
-        <p className="mt-1 text-xs text-slate-400">
-          Driver: {load.driver_name || "Unassigned"}
-        </p>
+       <p className="mt-1 text-xs text-slate-400">
+  Driver: {load.driver_name || "Unassigned"}
+</p>
 
+{load.truck_number && (
+  <p className="text-xs text-slate-400">
+    Truck: <span className="text-white">{load.truck_number}</span>
+  </p>
+)}
+
+{load.tracking_active && (
+  <div className="mt-2 inline-flex rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-[11px] font-semibold text-green-300">
+    Tracking Active
+  </div>
+)}
+  
+<div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+  <TimePill label="Assigned" value={load.assigned_at} />
+  <TimePill label="Arrived" value={load.arrived_pickup_at} />
+  <TimePill label="Transit" value={load.in_transit_at} />
+  <TimePill label="Delivered" value={load.delivered_at} />
+</div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-          <MoneyBox label="Revenue" value={load.rate || 0} color="text-green-400" />
-          <MoneyBox label="Driver Pay" value={load.driver_pay || 0} color="text-yellow-400" />
-          <MoneyBox label="Fuel" value={load.fuel_cost || 0} color="text-orange-400" />
-          <MoneyBox
-            label="Profit"
-            value={load.profit || 0}
-            color={Number(load.profit || 0) >= 0 ? "text-[#00A3FF]" : "text-red-400"}
-          />
-        </div>
+  <MoneyBox
+    label="Revenue"
+    value={load.rate || 0}
+    color="text-green-400"
+  />
+
+  {(role === "owner" || role === "admin") && (
+    <MoneyBox
+      label="Driver Pay"
+      value={load.driver_pay || 0}
+      color="text-yellow-400"
+    />
+ )}
+
+  <MoneyBox
+    label="Fuel"
+    value={load.fuel_cost || 0}
+    color="text-orange-400"
+  />
+
+  {(role === "owner" || role === "admin") && (
+    <MoneyBox
+      label="Profit"
+      value={load.profit || 0}
+      color={
+        Number(load.profit || 0) >= 0
+          ? "text-[#00A3FF]"
+          : "text-red-400"
+      }
+    />
+  )}
+</div>
 
         {load.loaded_miles ? (
           <p className="mt-2 text-xs text-slate-500">
@@ -680,7 +758,30 @@ function LoadCard({
     </div>
   );
 }
+function TimePill({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-[#0B1522] p-2">
+      <p className="text-slate-500">{label}</p>
 
+      <p className={value ? "text-[#16BFFF]" : "text-slate-600"}>
+        {value ? formatTime(value) : "--"}
+      </p>
+    </div>
+  );
+}
+
+function formatTime(value: string) {
+  return new Date(value).toLocaleString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 function MoneyBox({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="rounded-lg bg-[#0B1522] p-2">

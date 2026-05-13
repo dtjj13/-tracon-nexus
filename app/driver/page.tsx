@@ -1,286 +1,398 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Navbar from "../components/Navbar";
 import { supabase } from "../lib/supabase";
-import { getUserRole, hasRole } from "../lib/getUserRole";
+import { hasRole } from "../lib/getUserRole";
 
 type Load = {
   id: string;
-  tracon_id: string;
+  tracon_id?: string;
   broker_load_id?: string;
-  bol_number?: string;
-  pickup: string;
-  dropoff: string;
-  driver: string;
-  status: string;
+  pickup?: string;
+  dropoff?: string;
+  status?: string;
+  driver?: string;
+  driver_email?: string;
+  driver_name?: string;
+  driver_pay?: number;
+  loaded_miles?: number;
   bol_url?: string;
   pod_url?: string;
-  driver_lat?: number;
-  driver_lng?: number;
-  location_updated_at?: string;
-
+  rate_con_url?: string;
+  assigned_at?: string;
+  arrived_pickup_at?: string;
+  in_transit_at?: string;
+  delivered_at?: string;
+  pod_uploaded_at?: string;
+  truck_number?: string;
 };
 
 export default function DriverPage() {
   const router = useRouter();
-useEffect(() => {
-  const checkRole = async () => {
-   const allowed = await hasRole(["driver"]);
 
-if (!allowed) {
-  router.push("/dispatch");
-}
-  };
-
-  checkRole();
-}, [router]);
   const [loads, setLoads] = useState<Load[]>([]);
+  const [email, setEmail] = useState("");
   const [trackingLoadId, setTrackingLoadId] = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 🔥 FETCH LOADS (FILTERED BY LOGGED-IN DRIVER)
-  const fetchLoads = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  useEffect(() => {
+    const init = async () => {
+      const allowed = await hasRole(["driver", "owner", "admin"]);
+      if (!allowed) router.push("/dispatch");
 
-    if (!user?.email) {
-      router.push("/login");
-      return;
-    }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
+      if (!user?.email) return;
+
+      setEmail(user.email);
+      fetchLoads(user.email);
+    };
+
+    init();
+
+    const channel = supabase
+      .channel("driver-mobile-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "loads" },
+        async () => {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+
+          if (user?.email) fetchLoads(user.email);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [router]);
+
+  const fetchLoads = async (userEmail: string) => {
     const { data, error } = await supabase
       .from("loads")
       .select("*")
-      .eq("driver", user.email)
+      .or(`driver_email.eq.${userEmail},driver.eq.${userEmail}`)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    if (error) return alert(error.message);
     setLoads(data || []);
   };
 
-  useEffect(() => {
-  fetchLoads();
-
-  const channel = supabase
-    .channel("driver-loads-realtime")
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "loads",
-      },
-      () => {
-        fetchLoads();
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}, []);
-
-  // 🔥 UPDATE STATUS
   const updateStatus = async (loadId: string, status: string) => {
-  const cleanStatus = status.trim();
+    const cleanStatus = status.trim();
 
-  const timestampUpdate: {
-    assigned_at?: string;
-    arrived_pickup_at?: string;
-    in_transit_at?: string;
-    delivered_at?: string;
-  } = {};
+    const timestampUpdate: {
+      assigned_at?: string;
+      arrived_pickup_at?: string;
+      in_transit_at?: string;
+      delivered_at?: string;
+    } = {};
 
-  if (cleanStatus === "Assigned") timestampUpdate.assigned_at = new Date().toISOString();
-  if (cleanStatus === "Arrived at Pickup") timestampUpdate.arrived_pickup_at = new Date().toISOString();
-  if (cleanStatus === "In Transit") timestampUpdate.in_transit_at = new Date().toISOString();
-  if (cleanStatus === "Delivered") timestampUpdate.delivered_at = new Date().toISOString();
+    if (cleanStatus === "Assigned") timestampUpdate.assigned_at = new Date().toISOString();
+    if (cleanStatus === "Arrived at Pickup") timestampUpdate.arrived_pickup_at = new Date().toISOString();
+    if (cleanStatus === "In Transit") timestampUpdate.in_transit_at = new Date().toISOString();
+    if (cleanStatus === "Delivered") timestampUpdate.delivered_at = new Date().toISOString();
 
-  const { error } = await supabase
-    .from("loads")
-    .update({
-      status: cleanStatus,
-      ...timestampUpdate,
-    })
-    .eq("id", loadId);
+    const { error } = await supabase
+      .from("loads")
+      .update({
+        status: cleanStatus,
+        ...timestampUpdate,
+      })
+      .eq("id", loadId);
 
-  if (error) return alert(error.message);
-await supabase.from("notifications").insert({
-  title: `Load ${loadId.slice(0, 6)} Updated`,
-  message: `Status changed to ${cleanStatus}`,
-  load_id: loadId,
-  type: cleanStatus.toLowerCase(),
-});
-  fetchLoads();
-};
-   
+    if (error) return alert(error.message);
 
-  // 🔥 GPS UPDATE
-  const updateLocation = (loadId: string) => {
-    if (!navigator.geolocation) {
-      alert("GPS not supported");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      const { error } = await supabase
-        .from("loads")
-        .update({
-          driver_lat: pos.coords.latitude,
-          driver_lng: pos.coords.longitude,
-          location_updated_at: new Date().toISOString(),
-        })
-        .eq("id", loadId);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
-
-      fetchLoads();
+    await supabase.from("notifications").insert({
+      title: `Load ${loadId.slice(0, 6)} Updated`,
+      message: `Driver changed status to ${cleanStatus}`,
+      load_id: loadId,
+      type: cleanStatus.toLowerCase(),
     });
+
+    fetchLoads(email);
   };
 
-  const startTracking = (loadId: string) => {
-    if (intervalRef.current) return;
-
-    setTrackingLoadId(loadId);
-
-    updateLocation(loadId);
-
-    intervalRef.current = setInterval(() => {
-      updateLocation(loadId);
-    }, 30000);
-  };
-
-  const stopTracking = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-      setTrackingLoadId(null);
-    }
-  };
-
-  // 🔥 UPLOAD FILE
-  const uploadFile = async (
-    loadId: string,
-    file: File | null,
-    type: "BOL" | "POD"
-  ) => {
+  const uploadFile = async (loadId: string, file: File | null, field: "bol_url" | "pod_url") => {
     if (!file) return;
 
-    const fileName = `${type}-${Date.now()}-${file.name}`;
+    const fileName = `${field}-${loadId}-${Date.now()}-${file.name}`;
 
     const { error: uploadError } = await supabase.storage
       .from("documents")
-      .upload(fileName, file);
+      .upload(fileName, file, { upsert: true });
 
-    if (uploadError) {
-      alert(uploadError.message);
-      return;
-    }
+    if (uploadError) return alert(uploadError.message);
 
     const { data } = supabase.storage.from("documents").getPublicUrl(fileName);
 
-    const updateData =
-      type === "BOL"
-        ? { bol_url: data.publicUrl }
-        : { pod_url: data.publicUrl };
+    const updateData: any = {
+      [field]: data.publicUrl,
+    };
 
-    await supabase.from("loads").update(updateData).eq("id", loadId);
+    if (field === "pod_url") {
+      updateData.pod_uploaded_at = new Date().toISOString();
+    }
 
-    fetchLoads();
+    const { error } = await supabase
+      .from("loads")
+      .update(updateData)
+      .eq("id", loadId);
+
+    if (error) return alert(error.message);
+
+    await supabase.from("notifications").insert({
+      title: field === "pod_url" ? "POD Uploaded" : "BOL Uploaded",
+      message: `Document uploaded for load ${loadId.slice(0, 6)}`,
+      load_id: loadId,
+      type: "document",
+    });
+
+    fetchLoads(email);
   };
 
+  const startTracking = (loadId: string) => {
+  if (!navigator.geolocation) {
+    alert("GPS is not supported on this device");
+    return;
+  }
+
+  setTrackingLoadId(loadId);
+
+  navigator.geolocation.watchPosition(
+    async (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+
+      await supabase
+        .from("loads")
+       .update({
+  driver_lat: position.coords.latitude,
+  driver_lng: position.coords.longitude,
+  tracking_active: true,
+tracking_started_at: new Date().toISOString(),
+})
+        .eq("id", loadId);
+    },
+    () => {
+      alert("Unable to access location. Please allow location permissions.");
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 10000,
+      timeout: 10000,
+    }
+  );
+};
+
+   
+
   return (
-    <div className="min-h-screen bg-[#050A11] text-white p-3 sm:p-6">
-      <img
-  src="/logo-wordmark.svg"
-  alt="Tracon Nexus"
-  className="mb-4 h-auto w-[220px]"
-/>
+    <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
+      <div className="space-y-5">
+        <Navbar />
 
-      <p className="text-slate-400 mt-2">Driver View</p>
+        <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5">
+          <p className="text-xs uppercase tracking-[0.3em] text-[#16BFFF]">
+            Driver View
+          </p>
+          <h1 className="mt-2 text-xl font-semibold text-white">My Loads</h1>
+        </div>
 
-      <div className="mt-8 space-y-4">
-        {loads.map((load) => (
-          <div
-            key={load.id}
-            className="rounded-xl border border-slate-800 bg-[#07101A] p-5"
-          >
-            <h2 className="text-xl font-bold">{load.tracon_id}</h2>
+        <div className="grid grid-cols-1 gap-4">
+          {loads.map((load) => (
+            <DriverLoadCard
+              key={load.id}
+              load={load}
+              trackingLoadId={trackingLoadId}
+              updateStatus={updateStatus}
+              uploadFile={uploadFile}
+              startTracking={startTracking}
+            />
+          ))}
 
-            <p className="mt-2">Pickup: {load.pickup}</p>
-            <p>Dropoff: {load.dropoff}</p>
-            <p>Driver: {load.driver}</p>
-            <p className="text-blue-400 mt-1">{load.status}</p>
-
-           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
-  <button
-    onClick={() => updateStatus(load.id, "Arrived at Pickup")}
-    className={`rounded-xl py-2 text-sm font-medium transition ${
-      load.status === "Arrived at Pickup"
-        ? "bg-indigo-600 text-white shadow-[0_0_18px_rgba(99,102,241,0.45)]"
-        : "bg-[#111827] text-slate-300 hover:bg-slate-700"
-    }`}
-  >
-    Arrived
-  </button>
-
-  <button
-    onClick={() => updateStatus(load.id, "In Transit")}
-    className={`rounded-xl py-2 text-sm font-medium transition ${
-      load.status === "In Transit"
-        ? "bg-blue-600 text-white shadow-[0_0_18px_rgba(37,99,235,0.45)]"
-        : "bg-[#111827] text-slate-300 hover:bg-slate-700"
-    }`}
-  >
-    Transit
-  </button>
-
-  <button
-    onClick={() => updateStatus(load.id, "Delivered")}
-    className={`rounded-xl py-2 text-sm font-medium transition ${
-      load.status === "Delivered"
-        ? "bg-green-600 text-white shadow-[0_0_18px_rgba(34,197,94,0.45)]"
-        : "bg-[#111827] text-slate-300 hover:bg-slate-700"
-    }`}
-  >
-    Delivered
-  </button>
-</div>
-
-            <div className="mt-4">
-              {trackingLoadId === load.id ? (
-                <button onClick={stopTracking} className="bg-red-600 p-2 w-full rounded">
-                  Stop Tracking
-                </button>
-              ) : (
-                <button onClick={() => startTracking(load.id)} className="bg-blue-600 p-2 w-full rounded">
-                  Start Tracking
-                </button>
-              )}
+          {loads.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-slate-800 bg-[#07101A] p-8 text-center text-slate-500">
+              No assigned loads.
             </div>
-
-            <div className="mt-4">
-              <label className="block text-sm">Upload BOL</label>
-              <input type="file" onChange={(e) => uploadFile(load.id, e.target.files?.[0] || null, "BOL")} />
-            </div>
-
-            <div className="mt-2">
-              <label className="block text-sm">Upload POD</label>
-              <input type="file" onChange={(e) => uploadFile(load.id, e.target.files?.[0] || null, "POD")} />
-            </div>
-          </div>
-        ))}
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function DriverLoadCard({
+  load,
+  trackingLoadId,
+  updateStatus,
+  uploadFile,
+  startTracking,
+}: {
+  load: Load;
+  trackingLoadId: string | null;
+  updateStatus: (loadId: string, status: string) => void;
+  uploadFile: (loadId: string, file: File | null, field: "bol_url" | "pod_url") => void;
+  startTracking: (loadId: string) => void;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-800 bg-[#07101A] p-5 shadow-[0_0_30px_rgba(0,0,0,0.35)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-2xl font-bold text-[#16BFFF]">
+            {load.broker_load_id || load.tracon_id || "Load"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">{load.tracon_id}</p>
+        </div>
+
+        <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${statusBadge(load.status)}`}>
+          {load.status || "Assigned"}
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-slate-800 bg-[#0B1522] p-4">
+        <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Route</p>
+        <p className="mt-2 text-lg font-semibold text-white">
+          {load.pickup || "-"} → {load.dropoff || "-"}
+        </p>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        {load.truck_number && (
+          <InfoBox title="Truck" value={load.truck_number || "-"} />
+        )}
+
+        <InfoBox
+          title="Loaded Miles"
+          value={load.loaded_miles ? `${load.loaded_miles}` : "-"}
+        />
+
+        <InfoBox
+          title="Driver Pay"
+          value={`$${Number(load.driver_pay || 0).toLocaleString()}`}
+          highlight
+        />
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <BigStatusButton
+          label="Arrived"
+          onClick={() => updateStatus(load.id, "Arrived at Pickup")}
+          active={load.status === "Arrived at Pickup"}
+        />
+
+        <BigStatusButton
+          label="In Transit"
+          onClick={() => updateStatus(load.id, "In Transit")}
+          active={load.status === "In Transit"}
+        />
+
+        <BigStatusButton
+          label="Delivered"
+          onClick={() => updateStatus(load.id, "Delivered")}
+          active={load.status === "Delivered"}
+          green
+        />
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="flex h-14 cursor-pointer items-center justify-center rounded-2xl bg-[#111B35] text-sm font-semibold text-[#7BB7FF]">
+          {load.bol_url ? "BOL Uploaded" : "Upload BOL"}
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            className="hidden"
+            onChange={(e) =>
+              uploadFile(load.id, e.target.files?.[0] || null, "bol_url")
+            }
+          />
+        </label>
+
+        <label className="flex h-14 cursor-pointer items-center justify-center rounded-2xl bg-green-500/15 text-sm font-semibold text-green-300">
+          {load.pod_url ? "POD Uploaded" : "Upload POD"}
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            className="hidden"
+            onChange={(e) =>
+              uploadFile(load.id, e.target.files?.[0] || null, "pod_url")
+            }
+          />
+        </label>
+      </div>
+
+      <button
+        onClick={() => startTracking(load.id)}
+        className="mt-4 h-14 w-full rounded-2xl border border-[#16BFFF]/40 bg-[#16BFFF]/10 text-sm font-semibold text-[#16BFFF]"
+      >
+        {trackingLoadId === load.id ? "Tracking Active" : "Start Tracking"}
+      </button>
+    </div>
+  );
+}
+
+function InfoBox({
+  title,
+  value,
+  highlight,
+}: {
+  title: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-[#0B1522] p-4">
+      <p className="text-xs text-slate-500">{title}</p>
+      <p className={`mt-2 text-lg font-semibold ${highlight ? "text-yellow-400" : "text-white"}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function BigStatusButton({
+  label,
+  onClick,
+  active,
+  green,
+}: {
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  green?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`h-16 rounded-2xl text-sm font-bold uppercase tracking-wide shadow-[0_0_20px_rgba(0,0,0,0.25)] transition ${
+        active
+          ? green
+            ? "bg-green-500 text-white"
+            : "bg-[#16BFFF] text-white"
+          : green
+          ? "border border-green-500/30 bg-green-500/10 text-green-300"
+          : "border border-[#16BFFF]/30 bg-[#16BFFF]/10 text-[#16BFFF]"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function statusBadge(status?: string) {
+  const clean = status?.toLowerCase();
+
+  if (clean === "pending") return "border-yellow-500/40 bg-yellow-500/10 text-yellow-300";
+  if (clean === "assigned") return "border-cyan-500/40 bg-cyan-500/10 text-cyan-300";
+  if (clean === "arrived at pickup") return "border-indigo-500/40 bg-indigo-500/10 text-indigo-300";
+  if (clean === "in transit") return "border-[#16BFFF]/40 bg-[#16BFFF]/10 text-[#16BFFF]";
+  if (clean === "delivered") return "border-green-500/40 bg-green-500/10 text-green-300";
+
+  return "border-slate-700 bg-slate-800 text-slate-300";
 }
