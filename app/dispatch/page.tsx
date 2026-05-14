@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Navbar from "../components/Navbar";
 import { supabase } from "../lib/supabase";
 import { hasRole } from "../lib/getUserRole";
+import { formatDistanceToNow } from "date-fns";
 
 type Driver = {
   id: string;
@@ -20,6 +21,7 @@ type Driver = {
 type Load = {
   id: string;
   tracon_id: string;
+  broker_name?: string;
   broker_load_id?: string;
   bol_number?: string;
   pickup: string;
@@ -46,6 +48,7 @@ in_transit_at?: string;
 delivered_at?: string;
 tracking_active?: boolean;
 tracking_started_at?: string;
+updated_at?: string;
 };
 
 const statuses = [
@@ -67,6 +70,7 @@ export default function DispatchPage() {
   const [scanningRateCon, setScanningRateCon] = useState(false);
 
   const [form, setForm] = useState<{
+    broker_name?: string;
     broker_load_id: string;
     bol_number: string;
     pickup: string;
@@ -79,6 +83,7 @@ export default function DispatchPage() {
     fuel_cost: string;
     deadhead_miles: string;
   }>({
+   broker_name: "",
     broker_load_id: "",
     bol_number: "",
     pickup: "",
@@ -270,6 +275,7 @@ getRole();
     const { error } = await supabase.from("loads").insert([
       {
         tracon_id: traconId,
+        broker_name: form.broker_name,
         broker_load_id: form.broker_load_id,
         bol_number: form.bol_number,
         pickup: form.pickup,
@@ -293,6 +299,7 @@ getRole();
     if (error) return alert(error.message);
 
     setForm({
+      broker_name: "",
       broker_load_id: "",
       bol_number: "",
       pickup: "",
@@ -330,6 +337,7 @@ getRole();
     .update({
       status: cleanStatus,
       ...timestampUpdate,
+      updated_at: new Date().toISOString(),
     })
     .eq("id", loadId);
 
@@ -373,6 +381,7 @@ await supabase.from("notifications").insert({
   driver_pay: driverPay,
   profit,
   status: "Assigned",
+  updated_at: new Date().toISOString(),
 })
       .eq("id", loadId);
 
@@ -425,6 +434,22 @@ await supabase.from("notifications").insert({
   const transitLoads = loads.filter((l) => clean(l.status) === "in transit").length;
   const deliveredLoads = loads.filter((l) => clean(l.status) === "delivered").length;
   const missingPod = loads.filter((l) => clean(l.status) === "delivered" && !l.pod_url).length;
+const updateBol = async (loadId: string, bol: string) => {
+  const { error } = await supabase
+    .from("loads")
+    .update({
+      bol_number: bol,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", loadId);
+
+  if (error) {
+    console.error(error.message);
+    return;
+  }
+
+  fetchLoads();
+};
 
   return (
     <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
@@ -478,7 +503,6 @@ await supabase.from("notifications").insert({
         <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-4 shadow-[0_0_30px_rgba(0,0,0,0.45)]">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-semibold text-white">Create Load</h2>
-            <span className="text-xs text-slate-500">Dispatch entry</span>
           </div>
 
           <div className="mb-4 rounded-xl border border-purple-500/30 bg-purple-500/10 p-4">
@@ -505,8 +529,8 @@ await supabase.from("notifications").insert({
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <Input placeholder="Broker Name" value={form.broker_name || ""} onChange={(value) => setForm({ ...form, broker_name: value })} />
             <Input placeholder="Broker Load ID" value={form.broker_load_id} onChange={(value) => setForm({ ...form, broker_load_id: value })} />
-            <Input placeholder="BOL Number" value={form.bol_number} onChange={(value) => setForm({ ...form, bol_number: value })} />
             <Input placeholder="Pickup" value={form.pickup} onChange={(value) => setForm({ ...form, pickup: value })} />
             <Input placeholder="Dropoff" value={form.dropoff} onChange={(value) => setForm({ ...form, dropoff: value })} />
             <Input
@@ -531,7 +555,6 @@ await supabase.from("notifications").insert({
             <Input placeholder="Load Revenue" value={form.rate} onChange={(value) => setForm({ ...form, rate: value })} />
             <Input placeholder="Loaded Miles" value={form.loaded_miles} onChange={(value) => setForm({ ...form, loaded_miles: value })} />
             <Input placeholder="Fuel Cost" value={form.fuel_cost} onChange={(value) => setForm({ ...form, fuel_cost: value })} />
-            <Input placeholder="Deadhead Miles" value={form.deadhead_miles} onChange={(value) => setForm({ ...form, deadhead_miles: value })} />
 
             <button
               onClick={addLoad}
@@ -582,6 +605,7 @@ await supabase.from("notifications").insert({
                       changeDriver={changeDriver}
                       uploadFile={uploadFile}
                       deleteLoad={deleteLoad}
+                      updateBol={updateBol}
                     />
                   ))}
 
@@ -609,7 +633,8 @@ function LoadCard({
   changeDriver,
   uploadFile,
   deleteLoad,
-  
+  updateBol,
+
 }: {
   load: Load;
   drivers: Driver[];
@@ -619,24 +644,33 @@ function LoadCard({
   changeDriver: (loadId: string, driverId: string) => void;
   uploadFile: (loadId: string, file: File | null, type: "RATECON" | "BOL" | "POD") => void;
   deleteLoad: (loadId: string) => void;
+  updateBol: (loadId: string, bol: string) => void;
 }) {
   return (
     <div
       draggable
       onDragStart={() => setDraggingId(load.id)}
       onDragEnd={() => setDraggingId(null)}
-      className={`cursor-grab rounded-2xl border p-4 transition-all duration-200 ease-out active:cursor-grabbing hover:-translate-y-1 hover:scale-[1.01] active:scale-[0.98] ${
-        clean(load.status) === "delivered" && !load.pod_url
-          ? "border-red-500/50 bg-red-500/10"
-          : "border-slate-800 bg-[#050A11] hover:border-[#00A3FF]"
-      }`}
+     className={`cursor-grab rounded-2xl border p-4 transition-all duration-200 ease-out active:cursor-grabbing hover:-translate-y-1 hover:scale-[1.01] active:scale-[0.98] ${
+  clean(load.status) === "pending"
+    ? "border-yellow-500/30 bg-[#050A11] shadow-[0_0_18px_rgba(234,179,8,0.08)] hover:border-yellow-400"
+    : clean(load.status) === "assigned"
+    ? "border-blue-500/30 bg-[#050A11] shadow-[0_0_18px_rgba(59,130,246,0.08)] hover:border-blue-400"
+    : clean(load.status) === "arrived at pickup"
+    ? "border-purple-500/30 bg-[#050A11] shadow-[0_0_18px_rgba(168,85,247,0.08)] hover:border-purple-400"
+    : clean(load.status) === "in transit"
+    ? "border-cyan-500/30 bg-[#050A11] shadow-[0_0_18px_rgba(34,211,238,0.08)] hover:border-cyan-400"
+    : clean(load.status) === "delivered"
+    ? "border-green-500/30 bg-[#050A11] shadow-[0_0_18px_rgba(34,197,94,0.08)] hover:border-green-400"
+    : "border-slate-800 bg-[#050A11] hover:border-[#00A3FF]"
+}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-base font-bold text-[#00A3FF]">
             {load.broker_load_id || load.tracon_id}
           </p>
-          <p className="text-xs text-slate-500">{load.tracon_id}</p>
+          <p className="text-xs text-slate-500">{load.broker_name || load.tracon_id}</p>
         </div>
 
         <button onClick={() => deleteLoad(load.id)} className="text-xs text-red-400 hover:text-red-300">
@@ -644,13 +678,13 @@ function LoadCard({
         </button>
       </div>
 
-      <div className="mt-3 rounded-xl bg-[#07101A] p-3">
+      <div className="mt-3 rounded-xl bg-[#07101A] p-4">
         <p className="text-sm font-medium text-white">
           {load.pickup} → {load.dropoff}
         </p>
 
-       <p className="mt-1 text-xs text-slate-400">
-  Driver: {load.driver_name || "Unassigned"}
+       <p className="mt-1 text-xs text-slate-500">
+  Driver: <span className="text-white">{load.driver_name || "Unassigned"}</span>
 </p>
 
 {load.truck_number && (
@@ -660,7 +694,7 @@ function LoadCard({
 )}
 
 {load.tracking_active && (
-  <div className="mt-2 inline-flex rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-[11px] font-semibold text-green-300">
+  <div className="mt-3 inline-flex rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-[11px] font-semibold text-green-300">
     Tracking Active
   </div>
 )}
@@ -711,11 +745,24 @@ function LoadCard({
           </p>
         ) : null}
 
-        {load.bol_number && (
-          <p className="mt-2 text-xs text-slate-500">BOL: {load.bol_number}</p>
-        )}
+        <div className="mt-2">
+  <input
+    type="text"
+    placeholder="Enter BOL Number"
+    value={load.bol_number || ""}
+    onChange={(e) =>
+      updateBol(load.id, e.target.value)
+    }
+    className="w-full rounded-lg border border-slate-700 bg-[#0B1522] p-2 text-xs text-white outline-none focus:border-[#00A3FF]"
+  />
+</div>
       </div>
-
+      {load.updated_at && (
+  <p className="mt-3 text-[10px] text-slate-500">
+    Updated {formatDistanceToNow(new Date(load.updated_at), { addSuffix: true })}
+  </p>
+)}
+<div className="mt-4 border-t border-slate-800/60 pt-4 opacity-90"></div>
       <select
         value={load.status}
         onChange={(e) => updateStatus(load.id, e.target.value)}
@@ -766,7 +813,13 @@ function TimePill({
   value?: string;
 }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-[#0B1522] p-2">
+    <div
+  className={`rounded-lg border p-2 transition ${
+    value
+      ? "border-[#16BFFF]/40 bg-[#16BFFF]/10 shadow-[0_0_12px_rgba(22,191,255,0.18)]"
+      : "border-slate-800 bg-[#0B1522]"
+  }`}
+>
       <p className="text-slate-500">{label}</p>
 
       <p className={value ? "text-[#16BFFF]" : "text-slate-600"}>
