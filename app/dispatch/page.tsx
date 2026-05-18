@@ -16,8 +16,15 @@ type Driver = {
   pay_rate?: number;
   truck_mpg?: number;
    phone?: string;
+   truck_id?: string | null
+truck_number?: string | null
 };
-
+type Truck = {
+  id: string;
+  truck_number: string;
+  active: boolean;
+  mpg?: number;
+};
 type Load = {
   id: string;
   tracon_id: string;
@@ -50,7 +57,11 @@ tracking_active?: boolean;
 tracking_started_at?: string;
 updated_at?: string;
 };
-
+type FuelSettings = {
+  default_diesel_price?: number | null;
+  default_mpg?: number | null;
+  default_deadhead_percent?: number | null;
+};
 const statuses = [
   "Pending",
   "Assigned",
@@ -64,10 +75,12 @@ export default function DispatchPage() {
 
   const [loads, setLoads] = useState<Load[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [trucks, setTrucks] = useState<Truck[]>([]);
   const [role, setRole] = useState("");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [rateConFile, setRateConFile] = useState<File | null>(null);
   const [scanningRateCon, setScanningRateCon] = useState(false);
+const [fuelSettings, setFuelSettings] = useState<FuelSettings | null>(null);
 
   const [form, setForm] = useState<{
     broker_name?: string;
@@ -76,6 +89,7 @@ export default function DispatchPage() {
     pickup: string;
     dropoff: string;
     truck_number: string;
+    truck_id: string;
     driver_id: string;
     status: string;
     rate: string;
@@ -89,12 +103,14 @@ export default function DispatchPage() {
     pickup: "",
     dropoff: "",
     truck_number: "",
+    truck_id: "",
     driver_id: "",
     status: "Pending",
     rate: "",
     loaded_miles: "",
     fuel_cost: "",
     deadhead_miles: "",
+    
   });
 
   useEffect(() => {
@@ -122,6 +138,8 @@ getRole();
     checkRole();
     fetchLoads();
     fetchDrivers();
+    fetchTrucks();
+fetchFuelSettings();
 
     const channel = supabase
       .channel("dispatch-loads-realtime")
@@ -153,11 +171,31 @@ getRole();
       .select("*")
       .eq("active", true)
       .order("name", { ascending: true });
-
+console.log("Drivers from DB:", data);
     if (error) return alert(error.message);
     setDrivers(data || []);
   };
+const fetchTrucks = async () => {
+  const { data, error } = await supabase
+    .from("trucks")
+    .select("*")
+    .eq("active", true)
+    .order("truck_number", { ascending: true });
 
+  if (error) return alert(error.message);
+  setTrucks(data || []);
+};
+const fetchFuelSettings = async () => {
+  const { data, error } = await supabase
+    .from("company_settings")
+    .select("default_diesel_price, default_mpg, default_deadhead_percent")
+    .limit(1)
+    .single();
+
+  if (!error && data) {
+    setFuelSettings(data);
+  }
+};
   const extractRateConText = async (file: File) => {
     if (file.type === "text/plain") {
       return await file.text();
@@ -209,22 +247,23 @@ getRole();
 
     const data = await response.json();
 
-    if (data.error) {
-      alert(data.error);
-      return;
-    }
+if (data.error) {
+  alert(data.error);
+  return;
+}
 
-    setForm((prev) => ({
-      ...prev,
-      broker_load_id: data.broker_load_id || prev.broker_load_id,
-      bol_number: data.bol_number || prev.bol_number,
-      pickup: data.pickup || prev.pickup,
-      dropoff: data.dropoff || prev.dropoff,
-      rate: data.rate || prev.rate,
-      loaded_miles: data.loaded_miles || prev.loaded_miles,
-    }));
+setForm((prev) => ({
+  ...prev,
+  broker_name: data.broker_name || "",
+  broker_load_id: data.broker_load_id || "",
+  pickup: data.pickup || "",
+  dropoff: data.dropoff || "",
+  rate: data.rate || "",
+  loaded_miles: data.loaded_miles || "",
+  bol_number: data.bol_number || "",
+}));
 
-    alert("Rate confirmation scanned. Review before creating load.");
+alert("Rate confirmation scanned. Review before creating load.");
   } catch (error) {
     console.error(error);
     alert("Failed to scan rate confirmation");
@@ -250,11 +289,35 @@ getRole();
     if (!selectedDriver) return alert("Driver not found");
 
     const rate = Number(form.rate || 0);
-    const loadedMiles = Number(form.loaded_miles || 0);
-    const fuelCost = Number(form.fuel_cost || 0);
-    const deadheadMiles = Number(form.deadhead_miles || 0);
-    const driverPay = calculateDriverPay(selectedDriver, rate, loadedMiles);
-    const profit = rate - driverPay - fuelCost;
+const loadedMiles = Number(form.loaded_miles || 0);
+const deadheadMiles = Number(form.deadhead_miles || 0);
+
+const selectedTruck = trucks.find(
+  (t) => t.id === form.truck_id || t.id === selectedDriver.truck_id
+);
+
+const manualFuelCost = Number(form.fuel_cost || 0);
+
+const fuelCost =
+  manualFuelCost > 0
+    ? manualFuelCost
+    : calculateEstimatedFuelCost({
+        loadedMiles,
+        deadheadMiles,
+        truckMpg: selectedTruck?.mpg,
+        defaultMpg: fuelSettings?.default_mpg,
+        dieselPrice: fuelSettings?.default_diesel_price,
+        defaultDeadheadPercent:
+          fuelSettings?.default_deadhead_percent,
+      });
+
+const driverPay = calculateDriverPay(
+  selectedDriver,
+  rate,
+  loadedMiles
+);
+
+const profit = rate - driverPay - fuelCost;
 
     let rateConUrl = "";
 
@@ -271,7 +334,15 @@ getRole();
     }
 
     const traconId = `TN-${Math.floor(1000 + Math.random() * 9000)}`;
-
+console.log("Fuel Engine:", {
+  loadedMiles,
+  deadheadMiles,
+  selectedTruck,
+  fuelSettings,
+  fuelCost,
+  driverPay,
+  profit,
+});
     const { error } = await supabase.from("loads").insert([
       {
         tracon_id: traconId,
@@ -280,7 +351,11 @@ getRole();
         bol_number: form.bol_number,
         pickup: form.pickup,
         dropoff: form.dropoff,
-        truck_number: form.truck_number,
+        truck_id: selectedTruck?.id || null,
+        truck_number:
+  selectedTruck?.truck_number ||
+  selectedDriver.truck_number ||
+  "",
         driver: selectedDriver.email,
         driver_name: selectedDriver.name,
         driver_email: selectedDriver.email,
@@ -293,6 +368,8 @@ getRole();
         deadhead_miles: deadheadMiles,
         profit,
         rate_con_url: rateConUrl || null,
+      
+
       },
     ]);
 
@@ -311,6 +388,7 @@ getRole();
       loaded_miles: "",
       fuel_cost: "",
       deadhead_miles: "",
+      truck_id: "",
     });
 
     setRateConFile(null);
@@ -534,16 +612,35 @@ const updateBol = async (loadId: string, bol: string) => {
             <Input placeholder="Pickup" value={form.pickup} onChange={(value) => setForm({ ...form, pickup: value })} />
             <Input placeholder="Dropoff" value={form.dropoff} onChange={(value) => setForm({ ...form, dropoff: value })} />
             <Input
-  placeholder="Truck Number"
-  value={form.truck_number}
-  onChange={(value) => setForm({ ...form, truck_number: value })}
+  placeholder="Deadhead Miles"
+  value={form.deadhead_miles}
+  onChange={(value) =>
+    setForm({ ...form, deadhead_miles: value })
+  }
 />
 
             <select
-              value={form.driver_id}
-              onChange={(e) => setForm({ ...form, driver_id: e.target.value })}
-              className="rounded-xl border border-slate-700 bg-[#0B1522] p-2 text-sm text-white outline-none transition focus:border-[#00A3FF]"
-            >
+  value={form.driver_id}
+  onChange={(e) => {
+    
+
+    const driverId = e.target.value;
+
+    const selectedDriver = drivers.find(
+      (driver) => driver.id === driverId
+    );
+
+    console.log("Driver selected:", selectedDriver);
+
+    setForm({
+      ...form,
+      driver_id: driverId,
+      truck_id: selectedDriver?.truck_id || "",
+      truck_number: selectedDriver?.truck_number || "",
+    });
+  }}
+  className="rounded-xl border border-slate-700 bg-[#0B1522] p-2 text-sm text-white outline-none transition focus:border-[#00A3FF]"
+>
               <option value="">Select Driver</option>
               {drivers.map((driver) => (
                 <option key={driver.id} value={driver.id}>
@@ -551,7 +648,29 @@ const updateBol = async (loadId: string, bol: string) => {
                 </option>
               ))}
             </select>
+<select
+  value={form.truck_id}
+  onChange={(e) => {
+    const truckId = e.target.value;
 
+    const selectedTruck = trucks.find((truck) => truck.id === truckId);
+
+    setForm({
+      ...form,
+      truck_id: truckId,
+      truck_number: selectedTruck?.truck_number || "",
+    });
+  }}
+  className="rounded-xl border border-slate-700 bg-[#0B1522] p-2 text-sm text-white outline-none transition focus:border-[#00A3FF]"
+>
+  <option value="">Select Truck</option>
+
+  {trucks.map((truck) => (
+    <option key={truck.id} value={truck.id}>
+      {truck.truck_number}
+    </option>
+  ))}
+</select>
             <Input placeholder="Load Revenue" value={form.rate} onChange={(value) => setForm({ ...form, rate: value })} />
             <Input placeholder="Loaded Miles" value={form.loaded_miles} onChange={(value) => setForm({ ...form, loaded_miles: value })} />
             <Input placeholder="Fuel Cost" value={form.fuel_cost} onChange={(value) => setForm({ ...form, fuel_cost: value })} />
@@ -623,7 +742,37 @@ const updateBol = async (loadId: string, bol: string) => {
     </div>
   );
 }
+function calculateEstimatedFuelCost({
+  loadedMiles,
+  deadheadMiles,
+  truckMpg,
+  defaultMpg,
+  dieselPrice,
+  defaultDeadheadPercent,
+}: {
+  loadedMiles: number;
+  deadheadMiles: number;
+  truckMpg?: number | null;
+  defaultMpg?: number | null;
+  dieselPrice?: number | null;
+  defaultDeadheadPercent?: number | null;
+}) {
+  const mpg = Number(truckMpg || defaultMpg || 0);
+  const fuelPrice = Number(dieselPrice || 0);
 
+  if (!loadedMiles || !mpg || !fuelPrice) return 0;
+
+  const estimatedDeadhead =
+    deadheadMiles > 0
+      ? deadheadMiles
+      : defaultDeadheadPercent
+      ? loadedMiles * (Number(defaultDeadheadPercent) / 100)
+      : 0;
+
+  const totalMiles = loadedMiles + estimatedDeadhead;
+
+  return (totalMiles / mpg) * fuelPrice;
+}
 function LoadCard({
   load,
   drivers,
@@ -680,7 +829,7 @@ function LoadCard({
 
       <div className="mt-3 rounded-xl bg-[#07101A] p-4">
         <p className="text-sm font-medium text-white">
-          {load.pickup} → {load.dropoff}
+          {shortLocation(load.pickup)} → {shortLocation(load.dropoff)}
         </p>
 
        <p className="mt-1 text-xs text-slate-500">
@@ -901,4 +1050,28 @@ function statusColor(status: string) {
 
 function clean(value?: string) {
   return value?.trim().toLowerCase() || "";
+}
+function shortLocation(value?: string) {
+  if (!value) return "-";
+
+  const stateMatch = value.match(/\b([A-Z]{2})\s+\d{5}\b/);
+
+  if (stateMatch) {
+    const state = stateMatch[1];
+    const beforeState = value.slice(0, stateMatch.index).trim();
+    const words = beforeState.split(/\s+/);
+    const city = words[words.length - 1];
+
+    return `${city}, ${state}`;
+  }
+
+  const parts = value.split(",").map((part) => part.trim());
+
+  if (parts.length >= 2) {
+    const city = parts[parts.length - 2];
+    const state = parts[parts.length - 1].split(" ")[0];
+
+    return `${city}, ${state}`;
+  }
+  return value;
 }

@@ -14,14 +14,48 @@ export async function POST(req: Request) {
 
     const client = new OpenAI({ apiKey });
 
-    const { text } = await req.json();
+    const formData = await req.formData();
+    const file = formData.get("file") as File | null;
 
-    if (!text) {
+    if (!file) {
       return NextResponse.json(
-        { error: "No rate confirmation text provided" },
+        { error: "No file uploaded" },
         { status: 400 }
       );
     }
+
+    let text = "";
+
+if (
+  file.type === "application/pdf" ||
+  file.name.toLowerCase().endsWith(".pdf")
+) {
+ const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+pdfjs.GlobalWorkerOptions.workerSrc = "";
+
+  const arrayBuffer = await file.arrayBuffer();
+
+  const pdf = await pdfjs.getDocument({
+    data: new Uint8Array(arrayBuffer),
+  }).promise;
+
+  let fullText = "";
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+
+    const pageText = content.items
+      .map((item: any) => item.str)
+      .join(" ");
+
+    fullText += `\n${pageText}`;
+  }
+
+  text = fullText;
+} else {
+  text = await file.text();
+}
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
@@ -30,7 +64,7 @@ export async function POST(req: Request) {
         {
           role: "system",
           content:
-            "You extract trucking rate confirmation details. Return only valid JSON. No markdown.",
+            "Extract trucking rate confirmation data. Return only valid raw JSON. No markdown. No explanations.",
         },
         {
           role: "user",
@@ -39,12 +73,12 @@ Extract these fields from this rate confirmation text.
 
 Return JSON exactly like this:
 {
-  "broker_load_id": "",
   "broker_name": "",
+  "broker_load_id": "",
   "pickup": "",
   "dropoff": "",
-  "rate": "",
-  "loaded_miles": "",
+  "rate": 0,
+  "loaded_miles": 0,
   "pickup_date": "",
   "delivery_date": "",
   "bol_number": ""
@@ -58,7 +92,13 @@ ${text}
     });
 
     const content = completion.choices[0]?.message?.content || "{}";
-    const parsed = JSON.parse(content);
+
+    const cleaned = content
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const parsed = JSON.parse(cleaned);
 
     return NextResponse.json(parsed);
   } catch (error) {
