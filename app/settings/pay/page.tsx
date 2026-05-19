@@ -1,24 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Navbar from "../../components/Navbar";
-import { supabase } from "../../lib/supabase";
-
-type CompanySettings = {
-  id: string;
-  default_diesel_price?: number | null;
-  default_mpg?: number | null;
-  default_cpm?: number | null;
-  default_deadhead_percent?: number | null;
-};
+import Navbar from "@/app/components/Navbar";
+import { supabase } from "@/app/lib/supabase";
 
 export default function PayFuelSettingsPage() {
-  const [settingsId, setSettingsId] = useState<string>("");
-
   const [dieselPrice, setDieselPrice] = useState("");
   const [defaultMpg, setDefaultMpg] = useState("");
   const [defaultCpm, setDefaultCpm] = useState("");
   const [deadheadPercent, setDeadheadPercent] = useState("");
+
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchSettings();
@@ -28,44 +20,43 @@ export default function PayFuelSettingsPage() {
     const { data, error } = await supabase
       .from("company_settings")
       .select("*")
-      .limit(1)
+      .eq("id", 1)
       .single();
 
     if (error) {
-      alert(error.message);
+      console.error(error.message);
       return;
     }
 
-    if (!data) return;
+    if (data) {
+      setDieselPrice(
+        data.default_diesel_price
+          ? String(data.default_diesel_price)
+          : ""
+      );
 
-    setSettingsId(data.id);
+      setDefaultMpg(
+        data.default_mpg
+          ? String(data.default_mpg)
+          : ""
+      );
 
-    setDieselPrice(
-      data.default_diesel_price
-        ? String(data.default_diesel_price)
-        : ""
-    );
+      setDefaultCpm(
+        data.default_cpm
+          ? String(data.default_cpm)
+          : ""
+      );
 
-    setDefaultMpg(
-      data.default_mpg ? String(data.default_mpg) : ""
-    );
-
-    setDefaultCpm(
-      data.default_cpm ? String(data.default_cpm) : ""
-    );
-
-    setDeadheadPercent(
-      data.default_deadhead_percent
-        ? String(data.default_deadhead_percent)
-        : ""
-    );
+      setDeadheadPercent(
+        data.default_deadhead_percent
+          ? String(data.default_deadhead_percent)
+          : ""
+      );
+    }
   };
 
   const saveSettings = async () => {
-    if (!settingsId) {
-      alert("Settings not found");
-      return;
-    }
+    setLoading(true);
 
     const payload = {
       default_diesel_price: dieselPrice
@@ -88,14 +79,17 @@ export default function PayFuelSettingsPage() {
     const { error } = await supabase
       .from("company_settings")
       .update(payload)
-      .eq("id", settingsId);
+      .eq("id", 1);
+
+    setLoading(false);
 
     if (error) {
       alert(error.message);
+      console.error(error);
       return;
     }
 
-    alert("Pay & fuel settings updated");
+    alert("Pay & Fuel Settings Updated");
   };
 
   return (
@@ -105,12 +99,16 @@ export default function PayFuelSettingsPage() {
 
         <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5">
           <h1 className="text-xl font-semibold text-white">
-            Pay & Fuel
+            Pay & Fuel Settings
           </h1>
+
+          <p className="mt-2 text-sm text-slate-400">
+            Configure company-wide dispatch defaults.
+          </p>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
-          <h2 className="mb-4 font-semibold text-white">
+          <h2 className="mb-5 text-lg font-semibold text-white">
             Fleet Defaults
           </h2>
 
@@ -137,36 +135,20 @@ export default function PayFuelSettingsPage() {
             />
 
             <Input
-              label="Deadhead %"
+              label="Default Deadhead %"
               placeholder="15"
               value={deadheadPercent}
               onChange={setDeadheadPercent}
             />
           </div>
 
-          <div className="mt-6">
-            <button
-              onClick={saveSettings}
-              className="rounded-xl bg-gradient-to-r from-[#1E6BFF] to-[#00A3FF] px-5 py-3 text-sm font-semibold text-white"
-            >
-              Save Settings
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
-          <h2 className="mb-3 font-semibold text-white">
-            Future Automation
-          </h2>
-
-          <div className="space-y-2 text-sm text-slate-400">
-            <p>• Route-based diesel pricing</p>
-            <p>• MPG-based fuel estimates</p>
-            <p>• Automatic deadhead calculations</p>
-            <p>• Profit-per-truck analytics</p>
-            <p>• Driver payroll automation</p>
-            <p>• Load profitability scoring</p>
-          </div>
+          <button
+            onClick={saveSettings}
+            disabled={loading}
+            className="mt-6 rounded-xl bg-gradient-to-r from-[#1E6BFF] to-[#00A3FF] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(30,107,255,0.35)] transition hover:scale-[1.01] disabled:opacity-50"
+          >
+            {loading ? "Saving..." : "Save Settings"}
+          </button>
         </div>
       </div>
     </div>
@@ -186,13 +168,15 @@ function Input({
 }) {
   return (
     <div>
-      <p className="mb-2 text-sm text-slate-400">{label}</p>
+      <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">
+        {label}
+      </p>
 
       <input
-        placeholder={placeholder}
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border border-slate-700 bg-[#0B1522] p-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-[#00A3FF]"
+        className="w-full rounded-xl border border-slate-700 bg-[#0B1522] p-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-[#00A3FF]"
       />
     </div>
   );

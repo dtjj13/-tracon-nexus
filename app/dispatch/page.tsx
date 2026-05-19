@@ -187,10 +187,10 @@ const fetchTrucks = async () => {
 };
 const fetchFuelSettings = async () => {
   const { data, error } = await supabase
-    .from("company_settings")
-    .select("default_diesel_price, default_mpg, default_deadhead_percent")
-    .limit(1)
-    .single();
+  .from("company_settings")
+  .select("default_diesel_price, default_mpg, default_deadhead_percent")
+  .eq("id", 1)
+  .single();
 
   if (!error && data) {
     setFuelSettings(data);
@@ -201,29 +201,12 @@ const fetchFuelSettings = async () => {
       return await file.text();
     }
 
-    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-      const pdfjs = await import("pdfjs-dist");
-
-      pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-
-      let fullText = "";
-
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const content = await page.getTextContent();
-
-        const pageText = content.items
-          .map((item: any) => item.str)
-          .join(" ");
-
-        fullText += `\n${pageText}`;
-      }
-
-      return fullText;
-    }
+   if (
+  file.type === "application/pdf" ||
+  file.name.toLowerCase().endsWith(".pdf")
+) {
+  return "PDF uploaded";
+}
 
     return await file.text();
   };

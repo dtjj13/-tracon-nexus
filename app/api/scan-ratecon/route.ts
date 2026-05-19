@@ -1,112 +1,102 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { createRequire } from "module";
+
+export const runtime = "nodejs";
+
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse/lib/pdf-parse.js");
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "OPENAI_API_KEY is missing" },
-        { status: 500 }
-      );
-    }
-
-    const client = new OpenAI({ apiKey });
-
     const formData = await req.formData();
-    const file = formData.get("file") as File | null;
+
+    const file = formData.get("file") as File;
 
     if (!file) {
-      return NextResponse.json(
-        { error: "No file uploaded" },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        error: "No file uploaded",
+      });
     }
 
     let text = "";
 
-if (
-  file.type === "application/pdf" ||
-  file.name.toLowerCase().endsWith(".pdf")
-) {
- const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-pdfjs.GlobalWorkerOptions.workerSrc = "";
+    // TXT SUPPORT
+    if (file.type === "text/plain") {
+      text = await file.text();
+    }
 
-  const arrayBuffer = await file.arrayBuffer();
+    // PDF SUPPORT
+    else if (
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf")
+    ) {
+      const bytes = Buffer.from(await file.arrayBuffer());
 
-  const pdf = await pdfjs.getDocument({
-    data: new Uint8Array(arrayBuffer),
-  }).promise;
+      const parsed = await pdfParse(bytes);
 
-  let fullText = "";
+      text = parsed.text;
+    }
 
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
+    else {
+      return NextResponse.json({
+        error: "Unsupported file type",
+      });
+    }
 
-    const pageText = content.items
-      .map((item: any) => item.str)
-      .join(" ");
+    // FAIL SAFE
+    if (!text || text.trim().length < 20) {
+      return NextResponse.json({
+        error:
+          "Could not read this PDF. Broker may have sent a scanned/image PDF.",
+      });
+    }
 
-    fullText += `\n${pageText}`;
-  }
-
-  text = fullText;
-} else {
-  text = await file.text();
-}
-
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4.1-mini",
       messages: [
         {
           role: "system",
-          content:
-            "Extract trucking rate confirmation data. Return only valid raw JSON. No markdown. No explanations.",
-        },
-        {
-          role: "user",
           content: `
-Extract these fields from this rate confirmation text.
+You extract trucking rate confirmation data.
 
-Return JSON exactly like this:
+Return ONLY valid JSON.
+
+Example:
 {
   "broker_name": "",
   "broker_load_id": "",
   "pickup": "",
   "dropoff": "",
-  "rate": 0,
-  "loaded_miles": 0,
-  "pickup_date": "",
-  "delivery_date": "",
+  "rate": "",
+  "loaded_miles": "",
   "bol_number": ""
 }
-
-Text:
-${text}
-          `,
+`,
+        },
+        {
+          role: "user",
+          content: text,
         },
       ],
     });
 
-    const content = completion.choices[0]?.message?.content || "{}";
+    const raw =
+      completion.choices[0].message.content || "{}";
 
-    const cleaned = content
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
+    const parsedData = JSON.parse(raw);
 
-    const parsed = JSON.parse(cleaned);
+    return NextResponse.json(parsedData);
 
-    return NextResponse.json(parsed);
-  } catch (error) {
-    console.error("Rate con scan error:", error);
+  } catch (error: any) {
+    console.error(error);
 
-    return NextResponse.json(
-      { error: "Failed to scan rate confirmation" },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      error: error.message || "Failed to scan rate confirmation",
+    });
   }
 }
