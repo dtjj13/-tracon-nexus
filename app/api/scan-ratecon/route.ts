@@ -90,8 +90,26 @@ Example:
 
     const parsedData = JSON.parse(raw);
 
-    return NextResponse.json(parsedData);
+const cleanNumber = (value: any) => {
+  if (!value) return "";
 
+  return String(value)
+    .replace(/\$/g, "")
+    .replace(/,/g, "")
+    .trim();
+};
+
+const cleaned = {
+  broker_name: parsedData.broker_name || "",
+  broker_load_id: parsedData.broker_load_id || "",
+  pickup: parsedData.pickup || "",
+  dropoff: parsedData.dropoff || "",
+  rate: cleanNumber(parsedData.rate),
+  loaded_miles: cleanNumber(parsedData.loaded_miles),
+  bol_number: parsedData.bol_number || "",
+};
+
+return NextResponse.json(cleaned);
   } catch (error: any) {
     console.error(error);
 
