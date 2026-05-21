@@ -81,7 +81,53 @@ export default function DispatchPage() {
   const [rateConFile, setRateConFile] = useState<File | null>(null);
   const [scanningRateCon, setScanningRateCon] = useState(false);
 const [fuelSettings, setFuelSettings] = useState<FuelSettings | null>(null);
+const [editingLoadId, setEditingLoadId] = useState<string | null>(null);
 
+const [editForm, setEditForm] = useState({
+  broker_load_id: "",
+  pickup: "",
+  dropoff: "",
+  rate: "",
+  loaded_miles: "",
+  deadhead_miles: "",
+  fuel_cost: "",
+});
+const startEditLoad = (load: Load) => {
+  setEditingLoadId(load.id);
+
+  setEditForm({
+    broker_load_id: load.broker_load_id || "",
+    pickup: load.pickup || "",
+    dropoff: load.dropoff || "",
+    rate: String(load.rate || ""),
+    loaded_miles: String(load.loaded_miles || ""),
+    deadhead_miles: String(load.deadhead_miles || ""),
+    fuel_cost: String(load.fuel_cost || ""),
+  });
+};
+
+const saveEditedLoad = async (loadId: string) => {
+  const { error } = await supabase
+    .from("loads")
+    .update({
+      broker_load_id: editForm.broker_load_id,
+      pickup: editForm.pickup,
+      dropoff: editForm.dropoff,
+      rate: Number(editForm.rate || 0),
+      loaded_miles: Number(editForm.loaded_miles || 0),
+      deadhead_miles: Number(editForm.deadhead_miles || 0),
+      fuel_cost: Number(editForm.fuel_cost || 0),
+    })
+    .eq("id", loadId);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  setEditingLoadId(null);
+  fetchLoads();
+};
   const [form, setForm] = useState<{
     broker_name?: string;
     broker_load_id: string;
@@ -702,6 +748,12 @@ const updateBol = async (loadId: string, bol: string) => {
                       load={load}
                       role={role}
                       drivers={drivers}
+                      editingLoadId={editingLoadId}
+editForm={editForm}
+setEditForm={setEditForm}
+setEditingLoadId={setEditingLoadId}
+startEditLoad={startEditLoad}
+saveEditedLoad={saveEditedLoad}
                       setDraggingId={setDraggingId}
                       updateStatus={updateStatus}
                       changeDriver={changeDriver}
@@ -725,6 +777,7 @@ const updateBol = async (loadId: string, bol: string) => {
     </div>
   );
 }
+
 function calculateEstimatedFuelCost({
   loadedMiles,
   deadheadMiles,
@@ -760,14 +813,49 @@ function LoadCard({
   load,
   drivers,
   role, 
+  editingLoadId,
+editForm,
+setEditForm,
+startEditLoad,
+saveEditedLoad,
+setEditingLoadId,
   setDraggingId,
   updateStatus,
   changeDriver,
   uploadFile,
   deleteLoad,
   updateBol,
-
 }: {
+  editingLoadId: string | null;
+  setEditingLoadId: React.Dispatch<
+  React.SetStateAction<string | null>
+>;
+
+editForm: {
+  broker_load_id: string;
+  pickup: string;
+  dropoff: string;
+  rate: string;
+  loaded_miles: string;
+  deadhead_miles: string;
+  fuel_cost: string;
+};
+
+setEditForm: React.Dispatch<
+  React.SetStateAction<{
+    broker_load_id: string;
+    pickup: string;
+    dropoff: string;
+    rate: string;
+    loaded_miles: string;
+    deadhead_miles: string;
+    fuel_cost: string;
+  }>
+>;
+
+startEditLoad: (load: Load) => void;
+
+saveEditedLoad: (loadId: string) => Promise<void>;
   load: Load;
   drivers: Driver[];
   role: string;
@@ -797,19 +885,131 @@ function LoadCard({
     : "border-slate-800 bg-[#050A11] hover:border-[#00A3FF]"
 }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-base font-bold text-[#00A3FF]">
-            {load.broker_load_id || load.tracon_id}
-          </p>
-          <p className="text-xs text-slate-500">{load.broker_name || load.tracon_id}</p>
-        </div>
+     <div className="flex items-start justify-between gap-3">
+  <div>
+    <p className="text-base font-bold text-[#00A3FF]">
+      {load.broker_load_id || load.tracon_id}
+    </p>
 
-        <button onClick={() => deleteLoad(load.id)} className="text-xs text-red-400 hover:text-red-300">
-          Delete
-        </button>
-      </div>
+    <p className="text-xs text-slate-500">
+      {load.broker_name || load.tracon_id}
+    </p>
+  </div>
 
+  <div className="flex items-center gap-3">
+    <button
+      onClick={() => startEditLoad(load)}
+      className="text-xs text-cyan-400 hover:text-cyan-300"
+    >
+      Edit
+    </button>
+
+    <button
+      onClick={() => deleteLoad(load.id)}
+      className="text-xs text-red-400 hover:text-red-300"
+    >
+      Delete
+    </button>
+  </div>
+</div>
+{editingLoadId === load.id && (
+  <div className="mb-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3 space-y-2">
+    <Input
+      placeholder="Broker Load ID"
+      value={editForm.broker_load_id}
+      onChange={(value) =>
+        setEditForm({
+          ...editForm,
+          broker_load_id: value,
+        })
+      }
+    />
+
+    <Input
+      placeholder="Pickup"
+      value={editForm.pickup}
+      onChange={(value) =>
+        setEditForm({
+          ...editForm,
+          pickup: value,
+        })
+      }
+    />
+
+    <Input
+      placeholder="Dropoff"
+      value={editForm.dropoff}
+      onChange={(value) =>
+        setEditForm({
+          ...editForm,
+          dropoff: value,
+        })
+      }
+    />
+
+    <div className="grid grid-cols-2 gap-2">
+      <Input
+        placeholder="Revenue"
+        value={editForm.rate}
+        onChange={(value) =>
+          setEditForm({
+            ...editForm,
+            rate: value,
+          })
+        }
+      />
+
+      <Input
+        placeholder="Loaded Miles"
+        value={editForm.loaded_miles}
+        onChange={(value) =>
+          setEditForm({
+            ...editForm,
+            loaded_miles: value,
+          })
+        }
+      />
+
+      <Input
+        placeholder="Deadhead"
+        value={editForm.deadhead_miles}
+        onChange={(value) =>
+          setEditForm({
+            ...editForm,
+            deadhead_miles: value,
+          })
+        }
+      />
+
+      <Input
+        placeholder="Fuel"
+        value={editForm.fuel_cost}
+        onChange={(value) =>
+          setEditForm({
+            ...editForm,
+            fuel_cost: value,
+          })
+        }
+      />
+    </div>
+
+    <div className="flex gap-2">
+      <button
+        onClick={() => saveEditedLoad(load.id)}
+        className="rounded-lg bg-cyan-600 px-3 py-2 text-xs font-semibold text-white"
+      >
+        Save Changes
+      </button>
+
+      <button
+        onClick={() => setEditingLoadId(null)}
+        className="rounded-lg bg-slate-700 px-3 py-2 text-xs text-white"
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+)}
       <div className="mt-3 rounded-xl bg-[#07101A] p-4">
         <p className="text-sm font-medium text-white">
           {shortLocation(load.pickup)} → {shortLocation(load.dropoff)}
