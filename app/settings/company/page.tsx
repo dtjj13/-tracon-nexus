@@ -1,174 +1,211 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Navbar from "../../components/Navbar";
 import { supabase } from "../../lib/supabase";
-
-type CompanySettings = {
-  id: string;
-  company_name?: string;
-  company_logo_url?: string;
-};
-
 export default function CompanySettingsPage() {
-  const [company, setCompany] = useState<CompanySettings | null>(null);
-  const [companyName, setCompanyName] = useState("Twelve 10 Logistics");
+  const router = useRouter();
+
+  const [companyName, setCompanyName] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchCompany();
   }, []);
 
   const fetchCompany = async () => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("company_settings")
       .select("*")
-      .limit(1)
       .single();
 
-    if (!error && data) {
-      setCompany(data);
-      setCompanyName(data.company_name || "Twelve 10 Logistics");
+    if (data) {
+      setCompanyName(data.company_name || "");
+      setLogoUrl(data.company_logo_url || "");
     }
   };
 
   const saveCompanyName = async () => {
-    if (!company) {
-      alert("Company settings not found");
-      return;
-    }
+    setLoading(true);
 
     const { error } = await supabase
       .from("company_settings")
-      .update({ company_name: companyName })
-      .eq("id", company.id);
+      .upsert({
+        id: 1,
+        company_name: companyName,
+      });
 
-    if (error) return alert(error.message);
+    setLoading(false);
 
-    alert("Company name saved");
-    fetchCompany();
-  };
-
-  const uploadLogo = async () => {
-    if (!company) {
-      alert("Company settings not found");
+    if (error) {
+      alert(error.message);
       return;
     }
 
-    if (!logoFile) {
+    alert("Company name updated");
+  };
+
+  const uploadLogo = async (fileToUpload?: File) => {
+    const file = fileToUpload || logoFile;
+
+    if (!file) {
       alert("Choose a logo first");
       return;
     }
 
-    const fileName = `company-logo-${Date.now()}-${logoFile.name}`;
+    setLoading(true);
+
+    const filePath = `company-logo-${Date.now()}`;
 
     const { error: uploadError } = await supabase.storage
-      .from("documents")
-      .upload(fileName, logoFile, { upsert: true });
+      .from("company-assets")
+      .upload(filePath, file, {
+        upsert: true,
+      });
 
-    if (uploadError) return alert(uploadError.message);
+    if (uploadError) {
+      setLoading(false);
+      alert(uploadError.message);
+      return;
+    }
 
-    const { data } = supabase.storage
-      .from("documents")
-      .getPublicUrl(fileName);
+    const {
+      data: { publicUrl },
+    } = supabase.storage
+      .from("company-assets")
+      .getPublicUrl(filePath);
 
-    const { error } = await supabase
+    const { error: dbError } = await supabase
       .from("company_settings")
-      .update({ company_logo_url: data.publicUrl })
-      .eq("id", company.id);
+      .upsert({
+        id: 1,
+        company_logo_url: publicUrl,
+      });
 
-    if (error) return alert(error.message);
+    setLoading(false);
 
-    setLogoFile(null);
+    if (dbError) {
+      alert(dbError.message);
+      return;
+    }
+
+    setLogoUrl(publicUrl);
+
     alert("Logo updated");
-    fetchCompany();
-  };
-
-  const removeLogo = async () => {
-    if (!company) return;
-
-    const { error } = await supabase
-      .from("company_settings")
-      .update({ company_logo_url: null })
-      .eq("id", company.id);
-
-    if (error) return alert(error.message);
-
-    alert("Logo removed");
-    fetchCompany();
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
-      <div className="space-y-6">
-        <Navbar />
+    <div className="min-h-screen bg-[#020617] text-white">
+      <Navbar />
 
-        <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5">
-          <h1 className="text-xl font-semibold text-white">Company</h1>
+      <div className="p-3 sm:p-6">
+        <div className="mb-4">
+          <button
+            onClick={() => router.back()}
+            className="rounded-xl border border-slate-700 bg-[#07101A] px-4 py-2 text-sm text-slate-300 transition hover:border-[#00A3FF] hover:text-white"
+          >
+            ← Back
+          </button>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
-          <h2 className="mb-4 font-semibold text-white">Company Branding</h2>
+          <h1 className="text-2xl font-bold text-white">
+            Company Settings
+          </h1>
 
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
-            <input
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="Company Name"
-              className="rounded-xl border border-slate-700 bg-[#0B1522] p-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-[#00A3FF]"
-            />
+          <p className="mt-2 text-slate-400">
+            Manage company branding and settings
+          </p>
+        </div>
 
-            <button
-              onClick={saveCompanyName}
-              className="rounded-xl border border-slate-700 bg-[#0B1522] px-4 py-2 text-sm font-semibold text-white hover:border-[#00A3FF]"
-            >
-              Save Name
-            </button>
+        <div className="mt-6 rounded-2xl border border-slate-800 bg-[#07101A] p-5">
+          <h2 className="mb-4 text-xl font-semibold text-white">
+            Company Branding
+          </h2>
 
-            <label className="cursor-pointer rounded-xl bg-gradient-to-r from-[#1E6BFF] to-[#00A3FF] px-4 py-2 text-center text-sm font-semibold text-white">
-              Choose Logo
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm text-slate-400">
+                Company Name
+              </label>
+
               <input
-                type="file"
-                className="hidden"
-                onChange={(e) => setLogoFile(e.target.files?.[0] || null)}
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="Company Name"
+                className="w-full rounded-xl border border-slate-700 bg-[#0B1522] p-3 text-white outline-none placeholder:text-slate-500 focus:border-[#00A3FF]"
               />
-            </label>
 
-            <button
-              onClick={uploadLogo}
-              className="rounded-xl bg-gradient-to-r from-[#1E6BFF] to-[#00A3FF] px-4 py-2 text-sm font-semibold text-white"
-            >
-              Replace Logo
-            </button>
-          </div>
+              <button
+                onClick={saveCompanyName}
+                disabled={loading}
+                className="mt-3 rounded-xl border border-slate-700 bg-[#0B1522] px-4 py-2 text-sm font-semibold text-white transition hover:border-[#00A3FF]"
+              >
+                Save Name
+              </button>
+            </div>
 
-          {logoFile && (
-            <p className="mt-3 text-sm text-slate-400">
-              Selected: {logoFile.name}
-            </p>
-          )}
+            <div>
+              <label className="mb-2 block text-sm text-slate-400">
+                Company Logo
+              </label>
 
-          <div className="mt-6 rounded-2xl border border-slate-800 bg-[#0B1522] p-5">
-            <p className="mb-3 text-sm text-slate-400">Current Logo</p>
+              <label className="flex cursor-pointer items-center justify-center rounded-xl bg-gradient-to-r from-[#16B8FF] to-[#00A3FF] px-4 py-3 text-sm font-semibold text-white">
+                Choose Logo
 
-            {company?.company_logo_url ? (
-              <div className="space-y-4">
-                <img
-                  src={company.company_logo_url}
-                  alt="Company Logo"
-                  className="max-h-24 rounded-xl border border-slate-800 bg-[#020617] p-3"
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+
+                    if (!file) return;
+
+                    setLogoFile(file);
+
+                    await uploadLogo(file);
+                  }}
                 />
+              </label>
 
-                <button
-                  onClick={removeLogo}
-                  className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
-                >
-                  Remove Logo
-                </button>
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500">No logo uploaded.</p>
-            )}
+              {logoUrl && (
+                
+                <div className="mt-4">
+                  <img
+                    src={logoUrl}
+                    alt="Company Logo"
+                    className="h-24 w-24 rounded-xl border border-slate-700 object-cover"
+                  />
+                  <button
+  onClick={async () => {
+    const { error } = await supabase
+      .from("company_settings")
+      .update({
+        company_logo_url: "",
+      })
+      .eq("id", 1);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setLogoUrl("");
+
+    alert("Logo removed");
+  }}
+  className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition hover:bg-red-500/20"
+>
+  Remove Logo
+</button>
+                </div>
+                
+              )}
+            </div>
           </div>
         </div>
       </div>

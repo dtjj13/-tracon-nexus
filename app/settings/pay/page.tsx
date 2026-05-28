@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import Navbar from "@/app/components/Navbar";
 import { supabase } from "@/app/lib/supabase";
+import { useRouter } from "next/navigation";
 
 export default function PayFuelSettingsPage() {
   const [dieselPrice, setDieselPrice] = useState("");
   const [defaultMpg, setDefaultMpg] = useState("");
   const [defaultCpm, setDefaultCpm] = useState("");
   const [deadheadPercent, setDeadheadPercent] = useState("");
-
+const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -96,7 +97,14 @@ export default function PayFuelSettingsPage() {
     <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
       <div className="space-y-6">
         <Navbar />
-
+<div className="mb-4">
+  <button
+    onClick={() => router.back()}
+    className="rounded-xl border border-slate-700 bg-[#07101A] px-4 py-2 text-sm text-slate-300 transition hover:border-[#00A3FF] hover:text-white"
+  >
+    ← Back
+  </button>
+</div>
         <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5">
           <h1 className="text-xl font-semibold text-white">
             Pay & Fuel Settings

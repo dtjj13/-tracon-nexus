@@ -10,8 +10,6 @@ type Load = {
   id: string;
   tracon_id?: string;
   broker_load_id?: string;
-  pickup?: string;
-  dropoff?: string;
   driver_name?: string;
   status?: string;
   rate?: number;
@@ -22,6 +20,9 @@ type Load = {
   rate_con_url?: string;
   created_at?: string;
   delivered_at?: string;
+  archived?: boolean;
+  cancelled?: boolean;
+cancelled_at?: string;
 };
 
 type Driver = {
@@ -30,11 +31,14 @@ type Driver = {
   active: boolean;
 };
 
+type TimeFilter = "daily" | "weekly" | "monthly" | "yearly";
+
 export default function OwnerDashboard() {
   const router = useRouter();
 
   const [loads, setLoads] = useState<Load[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>("weekly");
 
   useEffect(() => {
     const checkRole = async () => {
@@ -71,38 +75,54 @@ export default function OwnerDashboard() {
     setDrivers(driverData || []);
   };
 
+  const filteredLoads = useMemo(() => {
+    return loads.filter((load) => {
+      if (!load.created_at) return false;
+
+      const created = new Date(load.created_at);
+      const now = new Date();
+      const diffDays =
+        (now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (timeFilter === "daily") return diffDays <= 1;
+      if (timeFilter === "weekly") return diffDays <= 7;
+      if (timeFilter === "monthly") return diffDays <= 30;
+      return diffDays <= 365;
+    });
+  }, [loads, timeFilter]);
+
   const analytics = useMemo(() => {
-    const totalLoads = loads.length;
-    const activeLoads = loads.filter((l) => clean(l.status) !== "delivered").length;
-    const deliveredLoads = loads.filter((l) => clean(l.status) === "delivered").length;
-    const inTransitLoads = loads.filter((l) => clean(l.status) === "in transit").length;
-    const missingPODs = loads.filter((l) => clean(l.status) === "delivered" && !l.pod_url).length;
-    const missingRateCons = loads.filter((l) => !l.rate_con_url).length;
+    const totalLoads = filteredLoads.length;
+    const activeLoads = filteredLoads.filter((l) => clean(l.status) !== "delivered").length;
+    const deliveredLoads = filteredLoads.filter((l) => clean(l.status) === "delivered").length;
+    const inTransitLoads = filteredLoads.filter((l) => clean(l.status) === "in transit").length;
+    const missingPODs = filteredLoads.filter((l) => clean(l.status) === "delivered" && !l.pod_url).length;
+    const missingRateCons = filteredLoads.filter((l) => !l.rate_con_url).length;
     const activeDrivers = drivers.filter((d) => d.active).length;
 
-    const totalRevenue = sum(loads, "rate");
-    const totalDriverPay = sum(loads, "driver_pay");
-    const totalFuel = sum(loads, "fuel_cost");
-    const totalProfit = sum(loads, "profit");
+    const totalRevenue = sum(filteredLoads, "rate");
+    const totalDriverPay = sum(filteredLoads, "driver_pay");
+    const totalFuel = sum(filteredLoads, "fuel_cost");
+    const totalProfit = sum(filteredLoads, "profit");
 
     const avgProfit = totalLoads > 0 ? totalProfit / totalLoads : 0;
     const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
     const today = new Date().toDateString();
 
-    const deliveredToday = loads.filter((l) => {
+    const deliveredToday = filteredLoads.filter((l) => {
       if (!l.delivered_at) return false;
       return new Date(l.delivered_at).toDateString() === today;
     }).length;
 
-    const revenueAtRisk = loads
+    const revenueAtRisk = filteredLoads
       .filter((l) => clean(l.status) === "delivered" && !l.pod_url)
       .reduce((total, load) => total + Number(load.rate || 0), 0);
 
-    const negativeProfitLoads = loads.filter((l) => Number(l.profit || 0) < 0);
+    const negativeProfitLoads = filteredLoads.filter((l) => Number(l.profit || 0) < 0);
 
     const driverCounts = drivers.map((driver) => {
-      const driverLoads = loads.filter((load) => load.driver_name === driver.name);
+      const driverLoads = filteredLoads.filter((load) => load.driver_name === driver.name);
       const revenue = driverLoads.reduce((total, load) => total + Number(load.rate || 0), 0);
       const profit = driverLoads.reduce((total, load) => total + Number(load.profit || 0), 0);
 
@@ -133,22 +153,38 @@ export default function OwnerDashboard() {
       negativeProfitLoads,
       driverCounts,
     };
-  }, [loads, drivers]);
+  }, [filteredLoads, drivers]);
 
   return (
     <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
       <div className="space-y-6">
         <Navbar />
 
-       <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5 shadow-[0_0_30px_rgba(0,0,0,0.45)]">
-  <p className="text-xs uppercase tracking-[0.3em] text-[#16BFFF]">
-    Executive View
-  </p>
+        <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5 shadow-[0_0_30px_rgba(0,0,0,0.45)]">
+          <p className="text-xs uppercase tracking-[0.3em] text-[#16BFFF]">
+            Executive View
+          </p>
 
-  <h1 className="mt-2 text-xl uppercase tracking-[0.35em] text-white">
-    Owner Dashboard
-  </h1>
-</div>
+          <h1 className="mt-2 text-xl uppercase tracking-[0.35em] text-white">
+            Owner Dashboard
+          </h1>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {(["daily", "weekly", "monthly", "yearly"] as TimeFilter[]).map((filter) => (
+            <button
+              key={filter}
+              onClick={() => setTimeFilter(filter)}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                timeFilter === filter
+                  ? "bg-[#00A3FF] text-white"
+                  : "border border-slate-800 bg-[#07101A] text-slate-400"
+              }`}
+            >
+              {filter.charAt(0).toUpperCase() + filter.slice(1)}
+            </button>
+          ))}
+        </div>
 
         {(analytics.missingPODs > 0 ||
           analytics.negativeProfitLoads.length > 0 ||
@@ -224,12 +260,6 @@ export default function OwnerDashboard() {
                   </div>
                 </div>
               ))}
-
-              {analytics.driverCounts.length === 0 && (
-                <div className="rounded-xl border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">
-                  No driver data yet.
-                </div>
-              )}
             </div>
           </div>
 
@@ -251,11 +281,21 @@ export default function OwnerDashboard() {
               </thead>
 
               <tbody>
-                {loads.slice(0, 8).map((load) => (
+                {filteredLoads.slice(0, 8).map((load) => (
                   <tr key={load.id} className="border-t border-slate-800">
                     <td className="p-4">
                       <p className="font-semibold text-[#16BFFF]">
                         {load.broker_load_id || load.tracon_id || "-"}
+                        {load.archived && (
+  <span className="ml-2 rounded-full bg-slate-700 px-2 py-1 text-[10px] text-slate-300">
+    Archived
+  </span>
+)}
+{load.cancelled && (
+  <span className="ml-2 rounded-full bg-yellow-500/20 px-2 py-1 text-[10px] text-yellow-300">
+    Cancelled
+  </span>
+)}
                       </p>
                     </td>
                     <td className="p-4">{load.driver_name || "-"}</td>
@@ -274,10 +314,10 @@ export default function OwnerDashboard() {
                   </tr>
                 ))}
 
-                {loads.length === 0 && (
+                {filteredLoads.length === 0 && (
                   <tr>
                     <td colSpan={6} className="p-6 text-center text-slate-500">
-                      No loads available yet.
+                      No loads for this period.
                     </td>
                   </tr>
                 )}
@@ -290,15 +330,7 @@ export default function OwnerDashboard() {
   );
 }
 
-function MetricCard({
-  title,
-  value,
-  color = "text-[#16BFFF]",
-}: {
-  title: string;
-  value: string | number;
-  color?: string;
-}) {
+function MetricCard({ title, value, color = "text-[#16BFFF]" }: { title: string; value: string | number; color?: string }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5 shadow-[0_0_25px_rgba(0,0,0,0.35)]">
       <p className="text-xs uppercase tracking-widest text-slate-500">{title}</p>
@@ -325,17 +357,7 @@ function MiniMoney({ title, value, color }: { title: string; value: number; colo
   );
 }
 
-function ProgressRow({
-  label,
-  value,
-  total,
-  danger = false,
-}: {
-  label: string;
-  value: number;
-  total: number;
-  danger?: boolean;
-}) {
+function ProgressRow({ label, value, total, danger = false }: { label: string; value: number; total: number; danger?: boolean }) {
   const pct = total > 0 ? Math.min((value / total) * 100, 100) : 0;
 
   return (

@@ -56,6 +56,10 @@ delivered_at?: string;
 tracking_active?: boolean;
 tracking_started_at?: string;
 updated_at?: string;
+cancelled?: boolean;
+archived?: boolean;
+completed_at?: string;
+cancelled_at?: string;
 };
 type FuelSettings = {
   default_diesel_price?: number | null;
@@ -204,8 +208,10 @@ fetchFuelSettings();
   const fetchLoads = async () => {
     const { data, error } = await supabase
       .from("loads")
-      .select("*")
-      .order("created_at", { ascending: false });
+.select("*")
+.eq("archived", false)
+.eq("cancelled", false)
+.order("created_at", { ascending: false });
 
     if (error) return alert(error.message);
     setLoads(data || []);
@@ -457,8 +463,44 @@ await supabase.from("notifications").insert({
 });
   fetchLoads();
 };
-    
+ const completeLoad = async (loadId: string) => {
+  const { error } = await supabase
+    .from("loads")
+    .update({
+      archived: true,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", loadId);
 
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  fetchLoads();
+};
+const cancelLoad = async (loadId: string) => {
+  if (!confirm("Cancel this load? It will be removed from the dispatch board but kept in history.")) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from("loads")
+    .update({
+      cancelled: true,
+      cancelled_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", loadId);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  fetchLoads();
+};
   const handleDrop = async (newStatus: string) => {
     if (!draggingId) return;
     await updateStatus(draggingId, newStatus);
@@ -760,6 +802,8 @@ saveEditedLoad={saveEditedLoad}
                       uploadFile={uploadFile}
                       deleteLoad={deleteLoad}
                       updateBol={updateBol}
+                      completeLoad={completeLoad}
+                      cancelLoad={cancelLoad}
                     />
                   ))}
 
@@ -815,6 +859,8 @@ function LoadCard({
   role, 
   editingLoadId,
 editForm,
+cancelLoad,
+completeLoad,
 setEditForm,
 startEditLoad,
 saveEditedLoad,
@@ -854,7 +900,8 @@ setEditForm: React.Dispatch<
 >;
 
 startEditLoad: (load: Load) => void;
-
+completeLoad: (loadId: string) => void;
+cancelLoad: (loadId: string) => void;
 saveEditedLoad: (loadId: string) => Promise<void>;
   load: Load;
   drivers: Driver[];
@@ -895,7 +942,14 @@ saveEditedLoad: (loadId: string) => Promise<void>;
       {load.broker_name || load.tracon_id}
     </p>
   </div>
-
+{load.status === "Delivered" && (
+  <button
+    onClick={() => completeLoad(load.id)}
+    className="rounded-xl bg-green-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-green-500"
+  >
+    Complete Load
+  </button>
+)}
   <div className="flex items-center gap-3">
     <button
       onClick={() => startEditLoad(load)}
@@ -904,12 +958,21 @@ saveEditedLoad: (loadId: string) => Promise<void>;
       Edit
     </button>
 
-    <button
-      onClick={() => deleteLoad(load.id)}
-      className="text-xs text-red-400 hover:text-red-300"
-    >
-      Delete
-    </button>
+    {load.status !== "Delivered" && !load.cancelled && (
+  <button
+    onClick={() => cancelLoad(load.id)}
+    className="text-xs text-yellow-400 transition hover:text-yellow-300"
+  >
+    Cancel
+  </button>
+)}
+
+<button
+  onClick={() => deleteLoad(load.id)}
+  className="text-xs text-red-400 transition hover:text-red-300"
+>
+  Delete
+</button>
   </div>
 </div>
 {editingLoadId === load.id && (
@@ -1137,6 +1200,7 @@ saveEditedLoad: (loadId: string) => Promise<void>;
     </div>
   );
 }
+
 function TimePill({
   label,
   value,

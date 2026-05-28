@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Navbar from "../../components/Navbar";
 import { supabase } from "../../lib/supabase";
+import { useRouter } from "next/navigation";
 
 type Driver = {
   id: string;
@@ -26,7 +27,7 @@ export default function DriversSettingsPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
-
+const router = useRouter();
   const [driverForm, setDriverForm] = useState({
     name: "",
     email: "",
@@ -177,7 +178,14 @@ export default function DriversSettingsPage() {
     <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
       <div className="space-y-6">
         <Navbar />
-
+<div className="mb-4">
+  <button
+    onClick={() => router.back()}
+    className="rounded-xl border border-slate-700 bg-[#07101A] px-4 py-2 text-sm text-slate-300 transition hover:border-[#00A3FF] hover:text-white"
+  >
+    ← Back
+  </button>
+</div>
         <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5">
           <h1 className="text-xl font-semibold text-white">
             Drivers

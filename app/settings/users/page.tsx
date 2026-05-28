@@ -137,8 +137,19 @@ if (!allowed) {
   };
 
   return (
-    <div className="min-h-screen bg-[#050A11] text-white p-3 sm:p-6">
-      <Navbar />
+  <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
+
+    <div className="mb-4">
+      <button
+        onClick={() => router.back()}
+        className="rounded-xl border border-slate-700 bg-[#07101A] px-4 py-2 text-sm text-slate-300 transition hover:border-[#00A3FF] hover:text-white"
+      >
+        ← Back
+      </button>
+    </div>
+
+   
+      
 
       <p className="text-slate-400 mt-2">Settings / Users & Roles</p>
 
