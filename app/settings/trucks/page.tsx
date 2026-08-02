@@ -15,6 +15,7 @@ type Truck = {
   license_plate?: string;
   mpg?: number | null;
   active: boolean;
+  vehicle_type?: string;
 };
 
 export default function TrucksSettingsPage() {
@@ -29,6 +30,7 @@ const router = useRouter();
     year: "",
     license_plate: "",
     mpg: "",
+    vehicle_type: "",
   });
 
   useEffect(() => {
@@ -69,20 +71,22 @@ const router = useRouter();
       year: "",
       license_plate: "",
       mpg: "",
+      vehicle_type: "",
     });
   };
 
   const startEditTruck = (truck: Truck) => {
     setEditingTruckId(truck.id);
     setTruckForm({
-      truck_number: truck.truck_number || "",
-      vin: truck.vin || "",
-      make: truck.make || "",
-      model: truck.model || "",
-      year: truck.year || "",
-      license_plate: truck.license_plate || "",
-      mpg: truck.mpg ? String(truck.mpg) : "",
-    });
+  truck_number: "",
+  vin: "",
+  make: "",
+  model: "",
+  year: "",
+  license_plate: "",
+  mpg: "",
+  vehicle_type: "",
+});
   };
 
   const saveTruck = async () => {
@@ -99,6 +103,7 @@ const router = useRouter();
       year: truckForm.year,
       license_plate: truckForm.license_plate,
       mpg: truckForm.mpg ? Number(truckForm.mpg) : null,
+      vehicle_type: truckForm.vehicle_type,
     };
 
     if (editingTruckId) {
@@ -222,7 +227,24 @@ const router = useRouter();
               value={truckForm.mpg}
               onChange={(v) => setTruckForm({ ...truckForm, mpg: v })}
             />
-
+<select
+  value={truckForm.vehicle_type}
+  onChange={(e) =>
+    setTruckForm({
+      ...truckForm,
+      vehicle_type: e.target.value,
+    })
+  }
+  className="rounded-xl border border-slate-700 bg-[#0B1522] p-3 text-sm text-white"
+>
+  <option value="">Select Vehicle Type</option>
+  <option value="cargo_van">Cargo Van</option>
+  <option value="sprinter">Sprinter</option>
+  <option value="box_truck">Box Truck</option>
+  <option value="semi">Semi Truck</option>
+  <option value="trailer">Trailer</option>
+  <option value="electric">Electric</option>
+</select>
             <button
               onClick={saveTruck}
               className="rounded-xl bg-gradient-to-r from-[#1E6BFF] to-[#00A3FF] px-4 py-2 text-sm font-semibold"
@@ -238,6 +260,7 @@ const router = useRouter();
               <tr>
                 <th className="p-4 text-left">Truck</th>
                 <th className="p-4 text-left">VIN</th>
+                <th>Type</th>
                 <th className="p-4 text-left">Make / Model</th>
                 <th className="p-4 text-left">Plate</th>
                 <th className="p-4 text-left">MPG</th>
@@ -252,6 +275,12 @@ const router = useRouter();
                   <td className="p-4 font-semibold text-white">
                     {truck.truck_number}
                   </td>
+                  <p className="text-xs text-slate-400">
+  Type:{" "}
+  <span className="text-white">
+    {truck.vehicle_type || "Not Set"}
+  </span>
+</p>
                   <td className="p-4">{truck.vin || "-"}</td>
                   <td className="p-4">
                     {truck.year || ""} {truck.make || ""} {truck.model || ""}

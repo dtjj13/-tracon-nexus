@@ -2,9 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+
 import Navbar from "../components/Navbar";
-import { supabase } from "../lib/supabase";
+import CompanyHealth from "../components/owner/CompanyHealth";
+import ExecutiveHeader from "../components/owner/ExecutiveHeader";
+import OwnerDepartmentMenu from "../components/owner/OwnerDepartmentMenu";
+import TodaysBusiness from "../components/owner/TodaysBusiness";
+import TodaysFocus from "../components/owner/TodaysFocus";
+import ExecutiveAI from "../components/owner/ExecutiveAI";
 import { hasRole } from "../lib/getUserRole";
+import { supabase } from "../lib/supabase";
 
 type Load = {
   id: string;
@@ -22,7 +29,7 @@ type Load = {
   delivered_at?: string;
   archived?: boolean;
   cancelled?: boolean;
-cancelled_at?: string;
+  cancelled_at?: string;
 };
 
 type Driver = {
@@ -38,102 +45,233 @@ export default function OwnerDashboard() {
 
   const [loads, setLoads] = useState<Load[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>("weekly");
+  const [timeFilter, setTimeFilter] =
+    useState<TimeFilter>("weekly");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkRole = async () => {
+    let mounted = true;
+
+    const initializeDashboard = async () => {
       const allowed = await hasRole(["owner", "admin"]);
-      if (!allowed) router.push("/dispatch");
+
+      if (!allowed) {
+        router.push("/dispatch");
+        return;
+      }
+
+      if (mounted) {
+        await fetchData();
+      }
     };
 
-    checkRole();
-    fetchData();
+    initializeDashboard();
 
     const channel = supabase
-      .channel("owner-analytics-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "loads" }, fetchData)
-      .on("postgres_changes", { event: "*", schema: "public", table: "drivers" }, fetchData)
+      .channel("owner-dashboard-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "loads",
+        },
+        fetchData
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "drivers",
+        },
+        fetchData
+      )
       .subscribe();
 
     return () => {
+      mounted = false;
       supabase.removeChannel(channel);
     };
   }, [router]);
 
   const fetchData = async () => {
-    const { data: loadData } = await supabase
-      .from("loads")
-      .select("*")
-      .order("created_at", { ascending: false });
+    try {
+      const [loadsResult, driversResult] = await Promise.all([
+        supabase
+          .from("loads")
+          .select("*")
+          .order("created_at", { ascending: false }),
 
-    const { data: driverData } = await supabase
-      .from("drivers")
-      .select("*")
-      .order("name", { ascending: true });
+        supabase
+          .from("drivers")
+          .select("*")
+          .order("name", { ascending: true }),
+      ]);
 
-    setLoads(loadData || []);
-    setDrivers(driverData || []);
+      if (loadsResult.error) {
+        console.error(
+          "Unable to load owner dashboard loads:",
+          loadsResult.error
+        );
+      }
+
+      if (driversResult.error) {
+        console.error(
+          "Unable to load owner dashboard drivers:",
+          driversResult.error
+        );
+      }
+
+      setLoads(loadsResult.data || []);
+      setDrivers(driversResult.data || []);
+    } catch (error) {
+      console.error("Unable to load owner dashboard:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const filteredLoads = useMemo(() => {
+    const now = new Date();
+
     return loads.filter((load) => {
       if (!load.created_at) return false;
 
-      const created = new Date(load.created_at);
-      const now = new Date();
-      const diffDays =
-        (now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
+      const createdAt = new Date(load.created_at);
 
-      if (timeFilter === "daily") return diffDays <= 1;
-      if (timeFilter === "weekly") return diffDays <= 7;
-      if (timeFilter === "monthly") return diffDays <= 30;
-      return diffDays <= 365;
+      if (Number.isNaN(createdAt.getTime())) {
+        return false;
+      }
+
+      const differenceInDays =
+        (now.getTime() - createdAt.getTime()) /
+        (1000 * 60 * 60 * 24);
+
+      if (timeFilter === "daily") {
+        return differenceInDays <= 1;
+      }
+
+      if (timeFilter === "weekly") {
+        return differenceInDays <= 7;
+      }
+
+      if (timeFilter === "monthly") {
+        return differenceInDays <= 30;
+      }
+
+      return differenceInDays <= 365;
     });
   }, [loads, timeFilter]);
 
   const analytics = useMemo(() => {
-    const totalLoads = filteredLoads.length;
-    const activeLoads = filteredLoads.filter((l) => clean(l.status) !== "delivered").length;
-    const deliveredLoads = filteredLoads.filter((l) => clean(l.status) === "delivered").length;
-    const inTransitLoads = filteredLoads.filter((l) => clean(l.status) === "in transit").length;
-    const missingPODs = filteredLoads.filter((l) => clean(l.status) === "delivered" && !l.pod_url).length;
-    const missingRateCons = filteredLoads.filter((l) => !l.rate_con_url).length;
-    const activeDrivers = drivers.filter((d) => d.active).length;
+    const operationalLoads = filteredLoads.filter(
+      (load) => !load.cancelled && !load.archived
+    );
 
-    const totalRevenue = sum(filteredLoads, "rate");
-    const totalDriverPay = sum(filteredLoads, "driver_pay");
-    const totalFuel = sum(filteredLoads, "fuel_cost");
-    const totalProfit = sum(filteredLoads, "profit");
+    const totalLoads = operationalLoads.length;
 
-    const avgProfit = totalLoads > 0 ? totalProfit / totalLoads : 0;
-    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+    const activeLoads = operationalLoads.filter(
+      (load) => clean(load.status) !== "delivered"
+    ).length;
+
+    const deliveredLoads = operationalLoads.filter(
+      (load) => clean(load.status) === "delivered"
+    ).length;
+
+    const inTransitLoads = operationalLoads.filter(
+      (load) => clean(load.status) === "in transit"
+    ).length;
+
+    const missingPODs = operationalLoads.filter(
+      (load) =>
+        clean(load.status) === "delivered" &&
+        !load.pod_url
+    ).length;
+
+    const missingRateCons = operationalLoads.filter(
+      (load) => !load.rate_con_url
+    ).length;
+
+    const negativeProfitLoads = operationalLoads.filter(
+      (load) => Number(load.profit || 0) < 0
+    );
+
+    const activeDrivers = drivers.filter(
+      (driver) => driver.active
+    ).length;
+
+    const totalRevenue = sum(operationalLoads, "rate");
+    const totalProfit = sum(operationalLoads, "profit");
+
+    const profitMargin =
+      totalRevenue > 0
+        ? (totalProfit / totalRevenue) * 100
+        : 0;
 
     const today = new Date().toDateString();
 
-    const deliveredToday = filteredLoads.filter((l) => {
-      if (!l.delivered_at) return false;
-      return new Date(l.delivered_at).toDateString() === today;
+    const deliveredToday = operationalLoads.filter((load) => {
+      if (!load.delivered_at) return false;
+
+      const deliveredAt = new Date(load.delivered_at);
+
+      if (Number.isNaN(deliveredAt.getTime())) {
+        return false;
+      }
+
+      return deliveredAt.toDateString() === today;
     }).length;
 
-    const revenueAtRisk = filteredLoads
-      .filter((l) => clean(l.status) === "delivered" && !l.pod_url)
-      .reduce((total, load) => total + Number(load.rate || 0), 0);
+    const revenueAtRisk = operationalLoads
+      .filter(
+        (load) =>
+          clean(load.status) === "delivered" &&
+          !load.pod_url
+      )
+      .reduce(
+        (total, load) =>
+          total + Number(load.rate || 0),
+        0
+      );
+const dispatchHealth = clampScore(
+  100 -
+    missingPODs * 8 -
+    missingRateCons * 5 -
+    negativeProfitLoads.length * 10
+);
 
-    const negativeProfitLoads = filteredLoads.filter((l) => Number(l.profit || 0) < 0);
+const driverHealth =
+  drivers.length > 0
+    ? clampScore((activeDrivers / drivers.length) * 100)
+    : 100;
 
-    const driverCounts = drivers.map((driver) => {
-      const driverLoads = filteredLoads.filter((load) => load.driver_name === driver.name);
-      const revenue = driverLoads.reduce((total, load) => total + Number(load.rate || 0), 0);
-      const profit = driverLoads.reduce((total, load) => total + Number(load.profit || 0), 0);
+const financialHealth = clampScore(
+  100 -
+    negativeProfitLoads.length * 15 -
+    (profitMargin < 0 ? 30 : profitMargin < 10 ? 15 : 0) -
+    (revenueAtRisk > 0 ? 10 : 0)
+);
 
-      return {
-        name: driver.name || "Unknown",
-        loads: driverLoads.length,
-        revenue,
-        profit,
-      };
-    });
+/*
+  Fleet and Safety are intentionally null until their
+  real database tables are connected.
+*/
+const fleetHealth: number | null = null;
+const safetyHealth: number | null = null;
 
+const connectedHealthScores = [
+  dispatchHealth,
+  driverHealth,
+  financialHealth,
+];
+
+const companyHealth = clampScore(
+  connectedHealthScores.reduce(
+    (total, score) => total + score,
+    0
+  ) / connectedHealthScores.length
+);
     return {
       totalLoads,
       activeLoads,
@@ -141,248 +279,323 @@ export default function OwnerDashboard() {
       inTransitLoads,
       missingPODs,
       missingRateCons,
+      negativeProfitLoads,
       activeDrivers,
       totalRevenue,
-      totalDriverPay,
-      totalFuel,
       totalProfit,
-      avgProfit,
       profitMargin,
       deliveredToday,
       revenueAtRisk,
-      negativeProfitLoads,
-      driverCounts,
+      companyHealth,
+  dispatchHealth,
+  driverHealth,
+  fleetHealth,
+  safetyHealth,
+  financialHealth,
     };
   }, [filteredLoads, drivers]);
 
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#020617] text-slate-400">
+        Loading Executive Dashboard...
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
-      <div className="space-y-6">
+      <div className="w-full px-6">
         <Navbar />
 
-        <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5 shadow-[0_0_30px_rgba(0,0,0,0.45)]">
-          <p className="text-xs uppercase tracking-[0.3em] text-[#16BFFF]">
-            Executive View
+        <div className="grid items-start gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+          <aside className="xl:sticky xl:top-6">
+            <OwnerDepartmentMenu />
+          </aside>
+
+         <main className="min-w-0 space-y-6">
+  <ExecutiveHeader
+    activeLoads={analytics.activeLoads}
+    activeDrivers={analytics.activeDrivers}
+  />
+
+<ExecutiveAI />
+
+  <CompanyHealth
+    score={analytics.companyHealth}
+    dispatch={analytics.dispatchHealth}
+    drivers={analytics.driverHealth}
+    fleet={analytics.fleetHealth}
+    safety={analytics.safetyHealth}
+    financials={analytics.financialHealth}
+/>
+
+  <TodaysFocus
+    missingPODs={analytics.missingPODs}
+    negativeProfitLoads={analytics.negativeProfitLoads.length}
+    missingRateCons={analytics.missingRateCons}
+    deliveredToday={analytics.deliveredToday}
+  />
+
+  <ExecutiveSnapshot
+    totalLoads={analytics.totalLoads}
+    deliveredLoads={analytics.deliveredLoads}
+    inTransitLoads={analytics.inTransitLoads}
+    profitMargin={analytics.profitMargin}
+  />
+
+  <TodaysBusiness
+    revenue={analytics.totalRevenue}
+    profit={analytics.totalProfit}
+    activeLoads={analytics.activeLoads}
+    activeDrivers={analytics.activeDrivers}
+    revenueAtRisk={analytics.revenueAtRisk}
+  />
+
+  <section className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p className="text-xs uppercase tracking-[0.25em] text-[#16BFFF]">
+          Recent Activity
+        </p>
+
+        <h2 className="mt-1 text-lg font-semibold text-white">
+          Company Timeline
+        </h2>
+      </div>
+
+      <TimeFilterButtons
+        selectedFilter={timeFilter}
+        onChange={setTimeFilter}
+      />
+    </div>
+
+    <RecentLoads loads={filteredLoads.slice(0, 5)} />
+  </section>
+</main>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TimeFilterButtons({
+  selectedFilter,
+  onChange,
+}: {
+  selectedFilter: TimeFilter;
+  onChange: (filter: TimeFilter) => void;
+}) {
+  const filters: TimeFilter[] = [
+    "daily",
+    "weekly",
+    "monthly",
+    "yearly",
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {filters.map((filter) => {
+        const isActive = selectedFilter === filter;
+
+        return (
+          <button
+            key={filter}
+            type="button"
+            onClick={() => onChange(filter)}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              isActive
+                ? "bg-[#00A3FF] text-white shadow-lg shadow-cyan-500/10"
+                : "border border-slate-800 bg-[#07101A] text-slate-400 hover:border-slate-700 hover:text-white"
+            }`}
+          >
+            {capitalize(filter)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ExecutiveSnapshot({
+  totalLoads,
+  deliveredLoads,
+  inTransitLoads,
+  profitMargin,
+}: {
+  totalLoads: number;
+  deliveredLoads: number;
+  inTransitLoads: number;
+  profitMargin: number;
+}) {
+  const items = [
+    {
+      title: "Total Loads",
+      value: totalLoads,
+      color: "text-[#16BFFF]",
+    },
+    {
+      title: "Delivered",
+      value: deliveredLoads,
+      color: "text-green-400",
+    },
+    {
+      title: "In Transit",
+      value: inTransitLoads,
+      color: "text-cyan-400",
+    },
+    {
+      title: "Profit Margin",
+      value: `${profitMargin.toFixed(1)}%`,
+      color:
+        profitMargin >= 0
+          ? "text-indigo-400"
+          : "text-red-400",
+    },
+  ];
+
+  return (
+    <section>
+      <div className="mb-4">
+        <p className="text-xs uppercase tracking-[0.25em] text-[#16BFFF]">
+          Company Overview
+        </p>
+
+        <h2 className="mt-1 text-lg font-semibold text-white">
+          Executive Snapshot
+        </h2>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {items.map((item) => (
+          <div
+            key={item.title}
+            className="rounded-2xl border border-slate-800 bg-[#07101A] p-5"
+          >
+            <p className="text-xs uppercase tracking-wider text-slate-500">
+              {item.title}
+            </p>
+
+            <p
+              className={`mt-3 text-2xl font-bold ${item.color}`}
+            >
+              {item.value}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RecentLoads({ loads }: { loads: Load[] }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-800 bg-[#07101A]">
+      <div className="flex items-center justify-between gap-4 border-b border-slate-800 p-5">
+        <div>
+          <p className="text-xs uppercase tracking-[0.25em] text-[#16BFFF]">
+            Recent Activity
           </p>
 
-          <h1 className="mt-2 text-xl uppercase tracking-[0.35em] text-white">
-            Owner Dashboard
-          </h1>
+          <h2 className="mt-1 text-lg font-semibold text-white">
+            Recent Loads
+          </h2>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {(["daily", "weekly", "monthly", "yearly"] as TimeFilter[]).map((filter) => (
-            <button
-              key={filter}
-              onClick={() => setTimeFilter(filter)}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                timeFilter === filter
-                  ? "bg-[#00A3FF] text-white"
-                  : "border border-slate-800 bg-[#07101A] text-slate-400"
-              }`}
-            >
-              {filter.charAt(0).toUpperCase() + filter.slice(1)}
-            </button>
-          ))}
-        </div>
+        <span className="text-xs text-slate-500">
+          Latest 5 loads
+        </span>
+      </div>
 
-        {(analytics.missingPODs > 0 ||
-          analytics.negativeProfitLoads.length > 0 ||
-          analytics.missingRateCons > 0) && (
-          <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 shadow-[0_0_25px_rgba(239,68,68,0.15)]">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <RiskCard title="Missing POD" value={analytics.missingPODs} />
-              <RiskCard title="Negative Profit" value={analytics.negativeProfitLoads.length} />
-              <RiskCard title="Missing Rate Con" value={analytics.missingRateCons} />
+      <div className="divide-y divide-slate-800">
+        {loads.map((load) => (
+          <div
+            key={load.id}
+            className="grid gap-3 p-5 transition hover:bg-[#0B1522] sm:grid-cols-[1.2fr_1fr_auto]"
+          >
+            <div>
+              <p className="font-semibold text-[#16BFFF]">
+                {load.broker_load_id ||
+                  load.tracon_id ||
+                  "Unnumbered load"}
+              </p>
+
+              <p className="mt-1 text-xs text-slate-500">
+                Driver: {load.driver_name || "Unassigned"}
+              </p>
             </div>
+
+            <div>
+              <p
+                className={`text-sm font-semibold ${statusColor(
+                  load.status
+                )}`}
+              >
+                {load.status || "No status"}
+              </p>
+
+              <p className="mt-1 text-xs text-slate-500">
+                Profit:{" "}
+                <span
+                  className={
+                    Number(load.profit || 0) >= 0
+                      ? "text-green-400"
+                      : "text-red-400"
+                  }
+                >
+                  {money(load.profit)}
+                </span>
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 sm:justify-end">
+              {load.cancelled && (
+                <span className="rounded-full bg-yellow-500/10 px-2.5 py-1 text-xs font-semibold text-yellow-300">
+                  Cancelled
+                </span>
+              )}
+
+              {load.archived && (
+                <span className="rounded-full bg-slate-700/50 px-2.5 py-1 text-xs font-semibold text-slate-300">
+                  Archived
+                </span>
+              )}
+
+              {!load.cancelled && !load.archived && (
+                <span
+                  className={
+                    load.pod_url
+                      ? "rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-semibold text-green-400"
+                      : "rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400"
+                  }
+                >
+                  {load.pod_url ? "POD Uploaded" : "POD Missing"}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {loads.length === 0 && (
+          <div className="p-8 text-center text-sm text-slate-500">
+            No loads found for this period.
           </div>
         )}
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <MetricCard title="Revenue" value={money(analytics.totalRevenue)} color="text-green-400" />
-          <MetricCard title="Profit" value={money(analytics.totalProfit)} color={analytics.totalProfit >= 0 ? "text-[#16BFFF]" : "text-red-400"} />
-          <MetricCard title="Margin" value={`${analytics.profitMargin.toFixed(1)}%`} color="text-indigo-400" />
-          <MetricCard title="Avg Profit" value={money(analytics.avgProfit)} color="text-[#16BFFF]" />
-          <MetricCard title="Revenue At Risk" value={money(analytics.revenueAtRisk)} color="text-red-400" />
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <MetricCard title="Total Loads" value={analytics.totalLoads} />
-          <MetricCard title="Active Loads" value={analytics.activeLoads} color="text-blue-400" />
-          <MetricCard title="In Transit" value={analytics.inTransitLoads} color="text-[#16BFFF]" />
-          <MetricCard title="Delivered Today" value={analytics.deliveredToday} color="text-green-400" />
-          <MetricCard title="Active Drivers" value={analytics.activeDrivers} color="text-indigo-400" />
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5 xl:col-span-2">
-            <h2 className="text-lg font-semibold text-white">Financial Breakdown</h2>
-
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-4">
-              <MiniMoney title="Revenue" value={analytics.totalRevenue} color="text-green-400" />
-              <MiniMoney title="Driver Pay" value={analytics.totalDriverPay} color="text-yellow-400" />
-              <MiniMoney title="Fuel" value={analytics.totalFuel} color="text-orange-400" />
-              <MiniMoney title="Profit" value={analytics.totalProfit} color={analytics.totalProfit >= 0 ? "text-[#16BFFF]" : "text-red-400"} />
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
-            <h2 className="text-lg font-semibold text-white">Load Status</h2>
-
-            <div className="mt-5 space-y-3">
-              <ProgressRow label="Active" value={analytics.activeLoads} total={analytics.totalLoads} />
-              <ProgressRow label="Delivered" value={analytics.deliveredLoads} total={analytics.totalLoads} />
-              <ProgressRow label="In Transit" value={analytics.inTransitLoads} total={analytics.totalLoads} />
-              <ProgressRow label="Missing POD" value={analytics.missingPODs} total={analytics.totalLoads} danger />
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
-            <h2 className="text-lg font-semibold text-white">Driver Performance</h2>
-
-            <div className="mt-5 space-y-3">
-              {analytics.driverCounts.map((driver) => (
-                <div key={driver.name} className="rounded-xl border border-slate-800 bg-[#0B1522] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-white">{driver.name}</p>
-                      <p className="text-xs text-slate-500">{driver.loads} loads</p>
-                    </div>
-
-                    <div className="text-right">
-                      <p className="text-sm text-green-400">{money(driver.revenue)}</p>
-                      <p className={driver.profit >= 0 ? "text-xs text-[#16BFFF]" : "text-xs text-red-400"}>
-                        {money(driver.profit)} profit
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-[#07101A]">
-            <div className="p-5">
-              <h2 className="text-lg font-semibold text-white">Recent Loads</h2>
-            </div>
-
-            <table className="w-full min-w-[760px] text-sm">
-              <thead className="bg-[#0B1522] text-slate-400">
-                <tr>
-                  <th className="p-4 text-left">Load</th>
-                  <th className="p-4 text-left">Driver</th>
-                  <th className="p-4 text-left">Status</th>
-                  <th className="p-4 text-left">Revenue</th>
-                  <th className="p-4 text-left">Profit</th>
-                  <th className="p-4 text-left">POD</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {filteredLoads.slice(0, 8).map((load) => (
-                  <tr key={load.id} className="border-t border-slate-800">
-                    <td className="p-4">
-                      <p className="font-semibold text-[#16BFFF]">
-                        {load.broker_load_id || load.tracon_id || "-"}
-                        {load.archived && (
-  <span className="ml-2 rounded-full bg-slate-700 px-2 py-1 text-[10px] text-slate-300">
-    Archived
-  </span>
-)}
-{load.cancelled && (
-  <span className="ml-2 rounded-full bg-yellow-500/20 px-2 py-1 text-[10px] text-yellow-300">
-    Cancelled
-  </span>
-)}
-                      </p>
-                    </td>
-                    <td className="p-4">{load.driver_name || "-"}</td>
-                    <td className={`p-4 ${statusColor(load.status)}`}>{load.status || "-"}</td>
-                    <td className="p-4 text-green-400">{money(load.rate)}</td>
-                    <td className={Number(load.profit || 0) >= 0 ? "p-4 text-[#16BFFF]" : "p-4 text-red-400"}>
-                      {money(load.profit)}
-                    </td>
-                    <td className="p-4">
-                      {load.pod_url ? (
-                        <span className="text-green-400">Uploaded</span>
-                      ) : (
-                        <span className="text-red-400">Missing</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-
-                {filteredLoads.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="p-6 text-center text-slate-500">
-                      No loads for this period.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
-    </div>
-  );
-}
-
-function MetricCard({ title, value, color = "text-[#16BFFF]" }: { title: string; value: string | number; color?: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5 shadow-[0_0_25px_rgba(0,0,0,0.35)]">
-      <p className="text-xs uppercase tracking-widest text-slate-500">{title}</p>
-      <h2 className={`mt-3 text-2xl font-bold ${color}`}>{value}</h2>
-    </div>
-  );
-}
-
-function RiskCard({ title, value }: { title: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
-      <p className="text-xs uppercase tracking-[0.2em] text-red-400">{title}</p>
-      <p className="mt-1 text-xl font-semibold text-white">{value}</p>
-    </div>
-  );
-}
-
-function MiniMoney({ title, value, color }: { title: string; value: number; color: string }) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-[#0B1522] p-4">
-      <p className="text-xs text-slate-500">{title}</p>
-      <p className={`mt-2 text-lg font-semibold ${color}`}>{money(value)}</p>
-    </div>
-  );
-}
-
-function ProgressRow({ label, value, total, danger = false }: { label: string; value: number; total: number; danger?: boolean }) {
-  const pct = total > 0 ? Math.min((value / total) * 100, 100) : 0;
-
-  return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-sm">
-        <span className="text-slate-300">{label}</span>
-        <span className={danger ? "text-red-400" : "text-[#16BFFF]"}>{value}</span>
-      </div>
-
-      <div className="h-2 overflow-hidden rounded-full bg-[#0B1522]">
-        <div
-          className={`h-full rounded-full ${danger ? "bg-red-500" : "bg-[#16BFFF]"}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
+    </section>
   );
 }
 
 function sum(loads: Load[], key: keyof Load) {
-  return loads.reduce((total, load) => total + Number(load[key] || 0), 0);
+  return loads.reduce(
+    (total, load) =>
+      total + Number(load[key] || 0),
+    0
+  );
 }
 
 function money(value?: number) {
-  return `$${Number(value || 0).toLocaleString(undefined, {
+  return `$${Number(value || 0).toLocaleString("en-US", {
     maximumFractionDigits: 2,
   })}`;
 }
@@ -391,14 +604,38 @@ function clean(value?: string) {
   return value?.trim().toLowerCase() || "";
 }
 
+function capitalize(value: string) {
+  return (
+    value.charAt(0).toUpperCase() +
+    value.slice(1)
+  );
+}
+function clampScore(score: number) {
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
 function statusColor(status?: string) {
   const value = clean(status);
 
-  if (value === "pending") return "text-yellow-400";
-  if (value === "assigned") return "text-cyan-400";
-  if (value === "arrived at pickup") return "text-indigo-400";
-  if (value === "in transit") return "text-[#16BFFF]";
-  if (value === "delivered") return "text-green-400";
+  if (value === "pending") {
+    return "text-yellow-400";
+  }
+
+  if (value === "assigned") {
+    return "text-cyan-400";
+  }
+
+  if (value === "arrived at pickup") {
+    return "text-indigo-400";
+  }
+
+  if (value === "in transit") {
+    return "text-[#16BFFF]";
+  }
+
+  if (value === "delivered") {
+    return "text-green-400";
+  }
 
   return "text-slate-300";
 }
