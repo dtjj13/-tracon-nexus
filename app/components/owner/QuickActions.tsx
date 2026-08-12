@@ -62,7 +62,7 @@ const departments = [
     subtitle: "Company performance",
     status: "Profit: $2,787",
     icon: Landmark,
-    href: "/financials",
+    href: "/owner/financials",
     statusColor: "text-green-400",
   },
   {

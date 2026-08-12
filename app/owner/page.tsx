@@ -10,6 +10,9 @@ import OwnerDepartmentMenu from "../components/owner/OwnerDepartmentMenu";
 import TodaysBusiness from "../components/owner/TodaysBusiness";
 import TodaysFocus from "../components/owner/TodaysFocus";
 import ExecutiveAI from "../components/owner/ExecutiveAI";
+import ExecutiveTimeline from "../components/owner/ExecutiveTimeline";
+import ExecutiveScore from "../components/owner/ExecutiveScore";
+import ProfitDetailsDrawer from "../components/dispatch/ProfitDetailsDrawer";
 import { hasRole } from "../lib/getUserRole";
 import { supabase } from "../lib/supabase";
 
@@ -22,7 +25,9 @@ type Load = {
   rate?: number;
   driver_pay?: number;
   fuel_cost?: number;
-  profit?: number;
+ profit?: number;
+net_profit?: number;
+profit_margin?: number;
   pod_url?: string;
   rate_con_url?: string;
   created_at?: string;
@@ -48,6 +53,8 @@ export default function OwnerDashboard() {
   const [timeFilter, setTimeFilter] =
     useState<TimeFilter>("weekly");
   const [loading, setLoading] = useState(true);
+  const [profitDetailsLoad, setProfitDetailsLoad] =
+  useState<Load | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -194,15 +201,19 @@ export default function OwnerDashboard() {
     ).length;
 
     const negativeProfitLoads = operationalLoads.filter(
-      (load) => Number(load.profit || 0) < 0
-    );
+  (load) => getLoadNetProfit(load) < 0
+);
 
     const activeDrivers = drivers.filter(
       (driver) => driver.active
     ).length;
 
     const totalRevenue = sum(operationalLoads, "rate");
-    const totalProfit = sum(operationalLoads, "profit");
+   const totalProfit = operationalLoads.reduce(
+  (total, load) =>
+    total + getLoadNetProfit(load),
+  0
+);
 
     const profitMargin =
       totalRevenue > 0
@@ -294,6 +305,14 @@ const companyHealth = clampScore(
   financialHealth,
     };
   }, [filteredLoads, drivers]);
+  const worstNegativeProfitLoad =
+  analytics.negativeProfitLoads.length > 0
+    ? analytics.negativeProfitLoads.reduce((worst, load) =>
+        getLoadNetProfit(load) < getLoadNetProfit(worst)
+          ? load
+          : worst
+      )
+    : null;
 
   if (loading) {
     return (
@@ -310,7 +329,12 @@ const companyHealth = clampScore(
 
         <div className="grid items-start gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
           <aside className="xl:sticky xl:top-6">
-            <OwnerDepartmentMenu />
+            <OwnerDepartmentMenu
+  dispatchCount={analytics.activeLoads}
+  activeDrivers={analytics.activeDrivers}
+  maintenanceDue={null}
+  safetyAlerts={null}
+/>
           </aside>
 
          <main className="min-w-0 space-y-6">
@@ -319,7 +343,21 @@ const companyHealth = clampScore(
     activeDrivers={analytics.activeDrivers}
   />
 
-<ExecutiveAI />
+<ExecutiveAI
+  companyHealth={analytics.companyHealth}
+  missingPODs={analytics.missingPODs}
+  missingRateCons={analytics.missingRateCons}
+  negativeProfitLoads={analytics.negativeProfitLoads.length}
+  revenueAtRisk={analytics.revenueAtRisk}
+  activeLoads={analytics.activeLoads}
+  activeDrivers={analytics.activeDrivers}
+  totalProfit={analytics.totalProfit}
+  onReviewNegativeProfit={
+  worstNegativeProfitLoad
+    ? () => setProfitDetailsLoad(worstNegativeProfitLoad)
+    : undefined
+}
+/>
 
   <CompanyHealth
     score={analytics.companyHealth}
@@ -329,7 +367,12 @@ const companyHealth = clampScore(
     safety={analytics.safetyHealth}
     financials={analytics.financialHealth}
 />
-
+<ExecutiveScore
+  companyHealth={analytics.companyHealth}
+  dispatchHealth={analytics.dispatchHealth}
+  driverHealth={analytics.driverHealth}
+  financialHealth={analytics.financialHealth}
+/>
   <TodaysFocus
     missingPODs={analytics.missingPODs}
     negativeProfitLoads={analytics.negativeProfitLoads.length}
@@ -370,11 +413,16 @@ const companyHealth = clampScore(
       />
     </div>
 
-    <RecentLoads loads={filteredLoads.slice(0, 5)} />
+    <ExecutiveTimeline loads={filteredLoads} />
   </section>
 </main>
         </div>
       </div>
+
+      <ProfitDetailsDrawer
+        load={profitDetailsLoad}
+        onClose={() => setProfitDetailsLoad(null)}
+      />
     </div>
   );
 }
@@ -538,12 +586,12 @@ function RecentLoads({ loads }: { loads: Load[] }) {
                 Profit:{" "}
                 <span
                   className={
-                    Number(load.profit || 0) >= 0
+                   getLoadNetProfit(load) >= 0
                       ? "text-green-400"
                       : "text-red-400"
                   }
                 >
-                  {money(load.profit)}
+                 {money(getLoadNetProfit(load))}
                 </span>
               </p>
             </div>
@@ -585,7 +633,11 @@ function RecentLoads({ loads }: { loads: Load[] }) {
     </section>
   );
 }
-
+function getLoadNetProfit(load: Load) {
+  return Number(
+    load.net_profit ?? load.profit ?? 0
+  );
+}
 function sum(loads: Load[], key: keyof Load) {
   return loads.reduce(
     (total, load) =>

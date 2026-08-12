@@ -15,6 +15,13 @@ import {
   Wrench,
 } from "lucide-react";
 
+type Props = {
+  dispatchCount: number;
+  activeDrivers: number;
+  maintenanceDue?: number | null;
+  safetyAlerts?: number | null;
+};
+
 type MenuItem = {
   title: string;
   subtitle: string;
@@ -29,107 +36,140 @@ type MenuSection = {
   items: MenuItem[];
 };
 
-const menuSections: MenuSection[] = [
-  {
-    title: "Executive",
-    items: [
-      {
-        title: "Overview",
-        subtitle: "Executive Dashboard",
-        href: "/owner",
-        icon: BarChart3,
-      },
-      {
-        title: "AI Executive",
-        subtitle: "Insights and Recommendations",
-        href: "/owner/ai",
-        icon: BrainCircuit,
-        status: "Soon",
-        statusColor: "text-cyan-400",
-      },
-    ],
-  },
-  {
-    title: "Operations",
-    items: [
-      {
-        title: "Dispatch",
-        subtitle: "Loads and Operations",
-        href: "/dispatch",
-        icon: Truck,
-        status: "2",
-        statusColor: "text-cyan-400",
-      },
-      {
-        title: "Drivers",
-        subtitle: "Driver Management",
-        href: "/drivers",
-        icon: Users,
-        status: "1",
-        statusColor: "text-green-400",
-      },
-      {
-        title: "Fleet",
-        subtitle: "Maintenance and Equipment",
-        href: "/fleet",
-        icon: Wrench,
-        status: "2 Due",
-        statusColor: "text-yellow-400",
-      },
-      {
-        title: "Safety",
-        subtitle: "Compliance Center",
-        href: "/safety",
-        icon: ShieldCheck,
-        status: "1 Alert",
-        statusColor: "text-red-400",
-      },
-    ],
-  },
-  {
-    title: "Business",
-    items: [
-      {
-        title: "Financials",
-        subtitle: "Company Performance",
-        href: "/financials",
-        icon: DollarSign,
-      },
-      {
-        title: "Payroll",
-        subtitle: "Driver and Employee Pay",
-        href: "/payroll",
-        icon: Wallet,
-      },
-      {
-        title: "Reports",
-        subtitle: "Business Intelligence",
-        href: "/reports",
-        icon: BarChart3,
-      },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      {
-        title: "Company",
-        subtitle: "Company Information",
-        href: "/settings/company",
-        icon: Building2,
-      },
-      {
-        title: "Settings",
-        subtitle: "System Configuration",
-        href: "/settings",
-        icon: Settings,
-      },
-    ],
-  },
-];
-
-export default function OwnerDepartmentMenu() {
+export default function OwnerDepartmentMenu({
+  dispatchCount,
+  activeDrivers,
+  maintenanceDue = null,
+  safetyAlerts = null,
+}: Props) {
   const pathname = usePathname();
+
+  const menuSections: MenuSection[] = [
+    {
+      title: "Executive",
+      items: [
+        {
+          title: "Overview",
+          subtitle: "Executive dashboard",
+          href: "/owner",
+          icon: BarChart3,
+        },
+        {
+          title: "AI Executive",
+          subtitle: "Insights and recommendations",
+          href: "/owner/ai",
+          icon: BrainCircuit,
+          status: "Live",
+          statusColor: "text-cyan-400",
+        },
+      ],
+    },
+    {
+      title: "Operations",
+      items: [
+        {
+          title: "Dispatch",
+          subtitle: "Loads and operations",
+          href: "/dispatch",
+          icon: Truck,
+          status: String(dispatchCount),
+          statusColor:
+            dispatchCount > 0 ? "text-cyan-400" : "text-slate-500",
+        },
+        {
+          title: "Drivers",
+          subtitle: "Driver management",
+          href: "/drivers",
+          icon: Users,
+          status: String(activeDrivers),
+          statusColor:
+            activeDrivers > 0 ? "text-green-400" : "text-slate-500",
+        },
+        {
+          title: "Fleet",
+          subtitle: "Maintenance and equipment",
+          href: "/fleet",
+          icon: Wrench,
+          status:
+            maintenanceDue === null
+              ? "Pending"
+              : maintenanceDue > 0
+                ? `${maintenanceDue} Due`
+                : "Clear",
+          statusColor:
+            maintenanceDue === null
+              ? "text-slate-500"
+              : maintenanceDue > 0
+                ? "text-yellow-400"
+                : "text-green-400",
+        },
+        {
+          title: "Safety",
+          subtitle: "Compliance center",
+          href: "/safety",
+          icon: ShieldCheck,
+          status:
+            safetyAlerts === null
+              ? "Pending"
+              : safetyAlerts > 0
+                ? `${safetyAlerts} Alert${safetyAlerts === 1 ? "" : "s"}`
+                : "Clear",
+          statusColor:
+            safetyAlerts === null
+              ? "text-slate-500"
+              : safetyAlerts > 0
+                ? "text-red-400"
+                : "text-green-400",
+        },
+      ],
+    },
+    {
+      title: "Business",
+      items: [
+        {
+          title: "Financial Settings",
+          subtitle: "Company cost defaults",
+          href: "/owner/financials",
+          icon: DollarSign,
+        },
+        {
+          title: "Payroll",
+          subtitle: "Driver and employee pay",
+          href: "/payroll",
+          icon: Wallet,
+        },
+        {
+          title: "Reports",
+          subtitle: "Business intelligence",
+          href: "/reports",
+          icon: BarChart3,
+        },
+      ],
+    },
+    {
+      title: "System",
+      items: [
+       {
+  title: "Company",
+  subtitle: "Company information",
+  href: "/settings/company",
+  icon: Building2,
+},
+{
+  title: "Financial Settings",
+  subtitle: "Fuel, insurance, mileage",
+  href: "/settings/financials",
+  icon: DollarSign,
+},
+{
+  title: "Settings",
+  subtitle: "System configuration",
+  href: "/settings",
+  icon: Settings,
+},
+      ],
+    },
+  ];
 
   const isActive = (href: string) => {
     if (href === "/owner") {
@@ -178,10 +218,10 @@ export default function OwnerDepartmentMenu() {
                     )}
 
                     <div
-                      className={`shrink-0 rounded-xl border p-2.5 transition ${
+                      className={`shrink-0 rounded-xl border p-2.5 ${
                         active
                           ? "border-cyan-500/30 bg-cyan-500/10"
-                          : "border-slate-800 bg-[#09111C] group-hover:border-slate-700"
+                          : "border-slate-800 bg-[#09111C]"
                       }`}
                     >
                       <Icon
@@ -195,11 +235,7 @@ export default function OwnerDepartmentMenu() {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-3">
-                        <p
-                          className={`truncate text-base font-semibold ${
-                            active ? "text-white" : "text-slate-200"
-                          }`}
-                        >
+                        <p className="truncate text-base font-semibold text-white">
                           {item.title}
                         </p>
 

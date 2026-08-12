@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import Navbar from "../components/Navbar";
-import { Building2, Truck, Users, UserCog, Fuel, ChevronRight } from "lucide-react";
+import {
+  Building2,
+  ChevronRight,
+  CircleDollarSign,
+  Fuel,
+  Truck,
+  UserCog,
+  Users,
+} from "lucide-react";
 
 const cards = [
   { title: "Company", href: "/settings/company", icon: Building2 },
@@ -10,6 +18,11 @@ const cards = [
   { title: "Trucks", href: "/settings/trucks", icon: Truck },
   { title: "Users & Roles", href: "/settings/users", icon: UserCog },
   { title: "Pay & Fuel", href: "/settings/pay", icon: Fuel },
+  {
+    title: "Financial Settings",
+    href: "/settings/financials",
+    icon: CircleDollarSign,
+  },
 ];
 
 export default function SettingsPage() {
