@@ -57,6 +57,11 @@ type Load = {
   driver_lng?: number;
   rate?: number;
   loaded_miles?: number;
+  loaded_miles_source?:
+  | "estimated"
+  | "manual"
+  | "rate-con"
+  | null;
   driver_pay?: number;
   fuel_cost?: number;
   fuel_cost_source?: "manual" | "estimated" | "existing";
@@ -109,6 +114,11 @@ export default function DispatchPage() {
   useState<Load | null>(null);
   const [rateConFile, setRateConFile] = useState<File | null>(null);
   const [scanningRateCon, setScanningRateCon] = useState(false);
+  const [estimatingMileage, setEstimatingMileage] = useState(false);
+
+const [mileageSource, setMileageSource] = useState<
+  "estimated" | "manual" | "rate-con" | null
+>(null);
   const [rateConReview, setRateConReview] =
   useState<RateConReviewData | null>(null);
 const [fuelSettings, setFuelSettings] = useState<FuelSettings | null>(null);
@@ -168,6 +178,8 @@ const saveEditedLoad = async (loadId: string) => {
   const deadheadMiles = Number(
     editForm.deadhead_miles || 0
   );
+  const loadedMilesChanged =
+  loadedMiles !== Number(load.loaded_miles || 0);
 
   const selectedDriver = drivers.find(
     (driver) =>
@@ -214,8 +226,11 @@ const saveEditedLoad = async (loadId: string) => {
       pickup: editForm.pickup,
       dropoff: editForm.dropoff,
       rate,
-      loaded_miles: loadedMiles,
-      deadhead_miles: deadheadMiles,
+     loaded_miles: loadedMiles,
+loaded_miles_source: loadedMilesChanged
+  ? "manual"
+  : load.loaded_miles_source || null,
+deadhead_miles: deadheadMiles,
 
       ...toLoadProfitColumns(profitResult),
 
@@ -433,10 +448,73 @@ const fetchFuelSettings = async () => {
     setScanningRateCon(false);
   }
 };
+const estimateLoadedMiles = async (
+  pickup = form.pickup,
+  dropoff = form.dropoff
+) => {
+  if (!pickup.trim() || !dropoff.trim()) {
+    alert("Enter pickup and dropoff before estimating mileage.");
+    return "";
+  }
 
-const approveRateConReview = (
+  try {
+    setEstimatingMileage(true);
+
+    const response = await fetch("/api/route-mileage", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        pickup,
+        dropoff,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || "Truck mileage could not be calculated."
+      );
+    }
+
+    const miles = Number(data.miles);
+
+    if (!Number.isFinite(miles) || miles <= 0) {
+      throw new Error("Truck mileage could not be calculated.");
+    }
+
+    const loadedMiles = String(miles);
+
+    setForm((previousForm) => ({
+      ...previousForm,
+      loaded_miles: loadedMiles,
+    }));
+
+    setMileageSource("estimated");
+
+    return loadedMiles;
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Truck mileage could not be calculated. Enter it manually."
+    );
+
+    return "";
+  } finally {
+    setEstimatingMileage(false);
+  }
+};
+const approveRateConReview = async (
   review: RateConReviewData
 ) => {
+  const rateConMiles =
+    Number(review.loaded_miles) > 0
+      ? review.loaded_miles
+      : "";
+
   setForm((previousForm) => ({
     ...previousForm,
     broker_name: review.broker_name,
@@ -444,11 +522,21 @@ const approveRateConReview = (
     pickup: review.pickup,
     dropoff: review.dropoff,
     rate: review.rate,
-    loaded_miles: review.loaded_miles,
+    loaded_miles: rateConMiles,
     bol_number: review.bol_number,
   }));
 
   setRateConReview(null);
+
+  if (rateConMiles) {
+    setMileageSource("rate-con");
+    return;
+  }
+
+  await estimateLoadedMiles(
+    review.pickup,
+    review.dropoff
+  );
 };
 
   const calculateDriverPay = (driver: Driver, rate: number, loadedMiles: number) => {
@@ -571,9 +659,11 @@ const deadheadMiles = Number(
         driver_phone: selectedDriver.phone || "",
 
         status: form.status,
-        rate,
-        loaded_miles: loadedMiles,
-        deadhead_miles: deadheadMiles,
+rate,
+loaded_miles: loadedMiles,
+loaded_miles_source:
+  mileageSource || "manual",
+deadhead_miles: deadheadMiles,
 
         ...toLoadProfitColumns(profitResult),
 
@@ -604,7 +694,8 @@ const deadheadMiles = Number(
   });
 
   setRateConFile(null);
-  fetchLoads();
+setMileageSource(null);
+fetchLoads();
 };
 const updateStatus = async (
   loadId: string,
@@ -990,14 +1081,53 @@ const updateBol = async (loadId: string, bol: string) => {
   }
 />
 
-<Input
-  placeholder="Loaded Miles"
-  value={form.loaded_miles}
-  onChange={(value) =>
-    setForm({ ...form, loaded_miles: value })
-  }
-/>
+<div className="flex min-w-0 flex-col gap-1">
+  <div className="flex gap-2">
+    <input
+      type="number"
+      min="0"
+      step="1"
+      placeholder="Loaded Miles"
+      value={form.loaded_miles}
+      onChange={(event) => {
+        const value = event.target.value;
 
+        setForm({
+          ...form,
+          loaded_miles: value,
+        });
+
+        setMileageSource(
+          value.trim() ? "manual" : null
+        );
+      }}
+      className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-[#0B1522] p-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-[#00A3FF]"
+    />
+
+    <button
+      type="button"
+      onClick={() => estimateLoadedMiles()}
+      disabled={
+        estimatingMileage ||
+        !form.pickup.trim() ||
+        !form.dropoff.trim()
+      }
+      className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {estimatingMileage ? "Estimating..." : "Estimate"}
+    </button>
+  </div>
+
+  {mileageSource && form.loaded_miles && (
+    <p className="px-1 text-[10px] font-medium uppercase tracking-wider text-cyan-400">
+      {mileageSource === "estimated"
+        ? "Estimated truck route"
+        : mileageSource === "rate-con"
+          ? "From rate confirmation"
+          : "Manual mileage"}
+    </p>
+  )}
+</div>
 <Input
   placeholder="Fuel Cost (blank = estimate)"
   value={form.fuel_cost}
@@ -1454,10 +1584,30 @@ saveEditedLoad: (loadId: string) => Promise<void>;
 )}
 
         {load.loaded_miles ? (
-          <p className="mt-2 text-xs text-slate-500">
-            Miles: {load.loaded_miles} loaded
-          </p>
-        ) : null}
+  <div className="mt-2 flex flex-wrap items-center gap-2">
+    <p className="text-xs text-slate-500">
+      Miles: {load.loaded_miles} loaded
+    </p>
+
+    {load.loaded_miles_source && (
+      <span
+        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+          load.loaded_miles_source === "estimated"
+            ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
+            : load.loaded_miles_source === "rate-con"
+              ? "border-purple-500/30 bg-purple-500/10 text-purple-300"
+              : "border-slate-600 bg-slate-700/30 text-slate-300"
+        }`}
+      >
+        {load.loaded_miles_source === "estimated"
+          ? "Estimated"
+          : load.loaded_miles_source === "rate-con"
+            ? "Rate Con"
+            : "Manual"}
+      </span>
+    )}
+  </div>
+) : null}
 
         <div className="mt-2">
   <input
