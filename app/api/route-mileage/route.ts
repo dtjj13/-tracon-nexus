@@ -82,12 +82,17 @@ export async function POST(request: Request) {
               DistanceUnits: 0,
               TollRoads: 3,
             },
-            ReportTypes: [
-              {
-                __type:
-                  "CalculateMilesReportType:http://pcmiler.alk.com/APIs/v1.0",
-              },
-            ],
+           ReportTypes: [
+  {
+    __type:
+      "CalculateMilesReportType:http://pcmiler.alk.com/APIs/v1.0",
+  },
+  {
+    __type:
+      "StateReportType:http://pcmiler.alk.com/APIs/v1.0",
+    SortByRoute: false,
+  },
+],
           },
         ],
       }),
@@ -106,6 +111,7 @@ export async function POST(request: Request) {
     }
 
     const miles = getMiles(reports);
+const stateMiles = getStateMiles(reports);
 
     if (miles === null || miles <= 0) {
       throw new MileageError(
@@ -119,6 +125,7 @@ export async function POST(request: Request) {
       source: "Trimble PC*Miler practical truck route",
       pickup_match: origin.label,
       dropoff_match: destination.label,
+      state_miles: stateMiles,
     });
   } catch (error: unknown) {
     if (error instanceof MileageError) {
@@ -223,7 +230,64 @@ function getMiles(value: unknown): number | null {
 
   return null;
 }
+type StateMileage = {
+  state: string;
+  miles: number;
+};
 
+function getStateMiles(value: unknown): StateMileage[] {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const stateMiles = getStateMiles(item);
+
+      if (stateMiles.length > 0) {
+        return stateMiles;
+      }
+    }
+  }
+
+  if (isRecord(value)) {
+    if (Array.isArray(value.StateReportLines)) {
+      return value.StateReportLines.flatMap((line) => {
+        const record = isRecord(line) ? line : null;
+
+        const state =
+          typeof record?.StCntry === "string"
+            ? record.StCntry.trim().toUpperCase()
+            : "";
+
+        const miles = toNumber(record?.Total);
+
+        if (
+  !state ||
+  state === "US" ||
+  state === "TOTAL" ||
+  miles === null ||
+  miles <= 0
+) {
+          return [];
+        }
+
+        return [
+          {
+            state,
+            miles: Number(miles.toFixed(1)),
+          },
+        ];
+      });
+    }
+
+    for (const item of Object.values(value)) {
+      const stateMiles = getStateMiles(item);
+
+      if (stateMiles.length > 0) {
+        return stateMiles;
+      }
+    }
+  }
+
+  return [];
+}
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }

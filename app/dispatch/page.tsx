@@ -94,6 +94,19 @@ type FuelSettings = {
   default_mpg?: number | null;
   default_deadhead_percent?: number | null;
 };
+type RouteFuelEstimate = {
+  price_per_gallon: number;
+  source: string;
+  as_of: string;
+  total_route_miles: number;
+  regions: Array<{
+    region: string;
+    region_name: string;
+    miles: number;
+    price_per_gallon: number;
+    as_of: string;
+  }>;
+};
 const statuses = [
   "Pending",
   "Assigned",
@@ -115,7 +128,8 @@ export default function DispatchPage() {
   const [rateConFile, setRateConFile] = useState<File | null>(null);
   const [scanningRateCon, setScanningRateCon] = useState(false);
   const [estimatingMileage, setEstimatingMileage] = useState(false);
-
+const [routeFuelEstimate, setRouteFuelEstimate] =
+  useState<RouteFuelEstimate | null>(null);
 const [mileageSource, setMileageSource] = useState<
   "estimated" | "manual" | "rate-con" | null
 >(null);
@@ -453,36 +467,48 @@ const estimateLoadedMiles = async (
   dropoff = form.dropoff
 ) => {
   if (!pickup.trim() || !dropoff.trim()) {
-    alert("Enter pickup and dropoff before estimating mileage.");
+    alert(
+      "Enter pickup and dropoff before estimating mileage."
+    );
     return "";
   }
 
   try {
     setEstimatingMileage(true);
+    setRouteFuelEstimate(null);
 
-    const response = await fetch("/api/route-mileage", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        pickup,
-        dropoff,
-      }),
-    });
+    const response = await fetch(
+      "/api/route-mileage",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          pickup,
+          dropoff,
+        }),
+      }
+    );
 
     const data = await response.json();
 
     if (!response.ok) {
       throw new Error(
-        data.error || "Truck mileage could not be calculated."
+        data.error ||
+          "Truck mileage could not be calculated."
       );
     }
 
     const miles = Number(data.miles);
 
-    if (!Number.isFinite(miles) || miles <= 0) {
-      throw new Error("Truck mileage could not be calculated.");
+    if (
+      !Number.isFinite(miles) ||
+      miles <= 0
+    ) {
+      throw new Error(
+        "Truck mileage could not be calculated."
+      );
     }
 
     const loadedMiles = String(miles);
@@ -493,6 +519,48 @@ const estimateLoadedMiles = async (
     }));
 
     setMileageSource("estimated");
+
+    if (
+      Array.isArray(data.state_miles) &&
+      data.state_miles.length > 0
+    ) {
+      try {
+        const fuelResponse = await fetch(
+          "/api/diesel-price",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              state_miles: data.state_miles,
+            }),
+          }
+        );
+
+        const fuelData =
+          await fuelResponse.json();
+
+        const routePrice = Number(
+          fuelData.price_per_gallon
+        );
+
+        if (
+          fuelResponse.ok &&
+          Number.isFinite(routePrice) &&
+          routePrice > 0
+        ) {
+          setRouteFuelEstimate(
+            fuelData as RouteFuelEstimate
+          );
+        }
+      } catch (fuelError) {
+        console.warn(
+          "Using company default fuel price:",
+          fuelError
+        );
+      }
+    }
 
     return loadedMiles;
   } catch (error) {
@@ -607,7 +675,9 @@ const deadheadMiles = Number(
       form.other_expenses || 0
     ),
     truckMpg: selectedTruck?.mpg,
-    settings: financialSettings,
+estimatedFuelPrice:
+  routeFuelEstimate?.price_per_gallon ?? null,
+settings: financialSettings,
   });
 
   let rateConUrl = "";
@@ -695,6 +765,7 @@ deadhead_miles: deadheadMiles,
 
   setRateConFile(null);
 setMileageSource(null);
+setRouteFuelEstimate(null);
 fetchLoads();
 };
 const updateStatus = async (

@@ -3,7 +3,9 @@ import {
   toProfitCalculationDefaults,
 } from "./financialSettings";
 
-export type FuelCostSource = "manual" | "estimated";
+export type FuelCostSource =
+  | "manual"
+  | "estimated";
 
 export type LoadProfitInput = {
   revenue: number;
@@ -13,6 +15,7 @@ export type LoadProfitInput = {
   manualFuelCost?: number | null;
   otherExpenses?: number;
   truckMpg?: number | null;
+  estimatedFuelPrice?: number | null;
   settings: CompanyFinancialSettings;
 };
 
@@ -42,20 +45,26 @@ export function calculateLoadProfit({
   manualFuelCost,
   otherExpenses = 0,
   truckMpg,
+  estimatedFuelPrice,
   settings,
 }: LoadProfitInput): LoadProfitResult {
   const safeRevenue = nonNegative(revenue);
-  const safeLoadedMiles = nonNegative(loadedMiles);
-  const safeDeadheadMiles = nonNegative(deadheadMiles);
-  const safeDriverPay = nonNegative(driverPay);
-  const safeOtherExpenses = nonNegative(otherExpenses);
+  const safeLoadedMiles =
+    nonNegative(loadedMiles);
+  const safeDeadheadMiles =
+    nonNegative(deadheadMiles);
+  const safeDriverPay =
+    nonNegative(driverPay);
+  const safeOtherExpenses =
+    nonNegative(otherExpenses);
 
   const totalMiles = round(
     safeLoadedMiles + safeDeadheadMiles,
     2
   );
 
-  const defaults = toProfitCalculationDefaults(settings);
+  const defaults =
+    toProfitCalculationDefaults(settings);
 
   const insuranceRatePerMile = round(
     defaults.insurancePerMile,
@@ -72,16 +81,24 @@ export function calculateLoadProfit({
       ? truckMpg
       : defaults.defaultMpg;
 
+  const selectedFuelPrice =
+    estimatedFuelPrice &&
+    estimatedFuelPrice > 0
+      ? estimatedFuelPrice
+      : defaults.defaultFuelPrice;
+
   const hasManualFuelCost =
     manualFuelCost !== null &&
     manualFuelCost !== undefined &&
-    Number.isFinite(Number(manualFuelCost)) &&
+    Number.isFinite(
+      Number(manualFuelCost)
+    ) &&
     Number(manualFuelCost) > 0;
 
   const estimatedFuelCost =
     selectedMpg > 0
       ? (totalMiles / selectedMpg) *
-        defaults.defaultFuelPrice
+        selectedFuelPrice
       : 0;
 
   const fuelCost = round(
@@ -92,15 +109,20 @@ export function calculateLoadProfit({
   );
 
   const fuelCostSource: FuelCostSource =
-    hasManualFuelCost ? "manual" : "estimated";
+    hasManualFuelCost
+      ? "manual"
+      : "estimated";
 
   const factoringPercentUsed = round(
-    nonNegative(settings.factoring_percent),
+    nonNegative(
+      settings.factoring_percent
+    ),
     3
   );
 
   const factoringCost = round(
-    safeRevenue * (factoringPercentUsed / 100),
+    safeRevenue *
+      (factoringPercentUsed / 100),
     2
   );
 
@@ -120,7 +142,10 @@ export function calculateLoadProfit({
 
   const profitMargin =
     safeRevenue > 0
-      ? round((netProfit / safeRevenue) * 100, 4)
+      ? round(
+          (netProfit / safeRevenue) * 100,
+          4
+        )
       : 0;
 
   return {
@@ -133,7 +158,7 @@ export function calculateLoadProfit({
       : round(selectedMpg, 2),
     fuelPriceUsed: hasManualFuelCost
       ? null
-      : round(defaults.defaultFuelPrice, 3),
+      : round(selectedFuelPrice, 3),
     insuranceRatePerMile,
     insuranceCost,
     factoringPercentUsed,
@@ -142,7 +167,7 @@ export function calculateLoadProfit({
     totalExpenses,
     netProfit,
     profitMargin,
-    calculationVersion: 1,
+    calculationVersion: 2,
   };
 }
 
@@ -152,19 +177,28 @@ export function toLoadProfitColumns(
   return {
     driver_pay: result.driverPay,
     fuel_cost: result.fuelCost,
-    fuel_cost_source: result.fuelCostSource,
-    fuel_mpg_used: result.fuelMpgUsed,
-    fuel_price_used: result.fuelPriceUsed,
+    fuel_cost_source:
+      result.fuelCostSource,
+    fuel_mpg_used:
+      result.fuelMpgUsed,
+    fuel_price_used:
+      result.fuelPriceUsed,
     insurance_rate_per_mile:
       result.insuranceRatePerMile,
-    insurance_cost: result.insuranceCost,
+    insurance_cost:
+      result.insuranceCost,
     factoring_percent_used:
       result.factoringPercentUsed,
-    factoring_cost: result.factoringCost,
-    other_expenses: result.otherExpenses,
-    total_expenses: result.totalExpenses,
-    net_profit: result.netProfit,
-    profit_margin: result.profitMargin,
+    factoring_cost:
+      result.factoringCost,
+    other_expenses:
+      result.otherExpenses,
+    total_expenses:
+      result.totalExpenses,
+    net_profit:
+      result.netProfit,
+    profit_margin:
+      result.profitMargin,
 
     // Keep the existing profit field working
     // while the dashboard transitions to net_profit.
@@ -172,25 +206,34 @@ export function toLoadProfitColumns(
 
     calculation_version:
       result.calculationVersion,
-    profit_calculated_at: new Date().toISOString(),
+    profit_calculated_at:
+      new Date().toISOString(),
   };
 }
 
 function nonNegative(value: number) {
   const parsed = Number(value);
 
-  if (!Number.isFinite(parsed) || parsed < 0) {
+  if (
+    !Number.isFinite(parsed) ||
+    parsed < 0
+  ) {
     return 0;
   }
 
   return parsed;
 }
 
-function round(value: number, decimals: number) {
+function round(
+  value: number,
+  decimals: number
+) {
   const multiplier = 10 ** decimals;
 
   return (
-    Math.round((value + Number.EPSILON) * multiplier) /
-    multiplier
+    Math.round(
+      (value + Number.EPSILON) *
+        multiplier
+    ) / multiplier
   );
 }
