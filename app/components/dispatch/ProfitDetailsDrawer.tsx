@@ -29,7 +29,9 @@ export type ProfitDetailsLoad = {
     | "estimated"
     | "existing";
   fuel_mpg_used?: number | null;
-  fuel_price_used?: number | null;
+fuel_price_used?: number | null;
+fuel_price_source?: string | null;
+fuel_price_as_of?: string | null;
   insurance_rate_per_mile?: number;
   insurance_cost?: number;
   factoring_percent_used?: number;
@@ -341,12 +343,34 @@ export default function ProfitDetailsDrawer({
               />
 
               <DetailCard
-                icon={<Fuel className="h-4 w-4" />}
-                label="Fuel basis"
-                value={fuelBasis(load)}
-              />
-            </div>
-          </section>
+  icon={<Fuel className="h-4 w-4" />}
+  label="Fuel basis"
+  value={fuelBasis(load)}
+/>
+</div>
+
+<div className="mt-3 rounded-xl border border-slate-800 bg-[#0B1522] p-4">
+  <div className="flex items-start justify-between gap-4">
+    <span className="text-xs text-slate-500">
+      Fuel price source
+    </span>
+
+    <span className="text-right text-xs font-medium text-slate-300">
+      {load.fuel_price_source || "Company default"}
+    </span>
+  </div>
+
+  <div className="mt-3 flex items-center justify-between gap-4 border-t border-slate-800 pt-3">
+    <span className="text-xs text-slate-500">
+      Price effective date
+    </span>
+
+    <span className="text-xs font-medium text-slate-300">
+      {formatFuelPriceDate(load.fuel_price_as_of)}
+    </span>
+  </div>
+</div>
+</section>
 
           <div className="mt-5 flex items-start gap-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.05] p-4">
             <Gauge className="mt-0.5 h-5 w-5 shrink-0 text-cyan-400" />
@@ -460,7 +484,21 @@ function fuelBasis(load: ProfitDetailsLoad) {
     3
   )}/gal`;
 }
+function formatFuelPriceDate(value?: string | null) {
+  if (!value) return "Not applicable";
 
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 function formatMoney(
   value: number,
   decimals = 2

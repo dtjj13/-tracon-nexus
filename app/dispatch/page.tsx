@@ -86,6 +86,8 @@ completed_at?: string;
 cancelled_at?: string;
 fuel_mpg_used?: number | null;
 fuel_price_used?: number | null;
+fuel_price_source?: string | null;
+fuel_price_as_of?: string | null;
 insurance_rate_per_mile?: number;
 factoring_percent_used?: number;
 };
@@ -139,7 +141,19 @@ const [fuelSettings, setFuelSettings] = useState<FuelSettings | null>(null);
 const [financialSettings, setFinancialSettings] =
   useState<CompanyFinancialSettings | null>(null);
 const [editingLoadId, setEditingLoadId] = useState<string | null>(null);
+const [currentTime, setCurrentTime] = useState(
+  () => Date.now()
+);
 
+useEffect(() => {
+  const timer = window.setInterval(() => {
+    setCurrentTime(Date.now());
+  }, 30_000);
+
+  return () => {
+    window.clearInterval(timer);
+  };
+}, []);
 const [editForm, setEditForm] = useState({
   broker_load_id: "",
   pickup: "",
@@ -230,7 +244,9 @@ const saveEditedLoad = async (loadId: string) => {
     ),
 
     truckMpg: selectedTruck?.mpg,
-    settings: financialSettings,
+estimatedFuelPrice:
+  load.fuel_price_used ?? null,
+settings: financialSettings,
   });
 
   const { error } = await supabase
@@ -248,7 +264,19 @@ deadhead_miles: deadheadMiles,
 
       ...toLoadProfitColumns(profitResult),
 
-      updated_at: new Date().toISOString(),
+fuel_price_source:
+  profitResult.fuelCostSource === "manual"
+    ? "Manual fuel cost"
+    : load.fuel_price_source === "Manual fuel cost"
+      ? "Company default"
+      : load.fuel_price_source || "Company default",
+
+fuel_price_as_of:
+  profitResult.fuelCostSource === "manual"
+    ? null
+    : load.fuel_price_as_of || null,
+
+updated_at: new Date().toISOString(),
     })
     .eq("id", loadId);
 
@@ -464,7 +492,8 @@ const fetchFuelSettings = async () => {
 };
 const estimateLoadedMiles = async (
   pickup = form.pickup,
-  dropoff = form.dropoff
+  dropoff = form.dropoff,
+  keepExistingMiles = false
 ) => {
   if (!pickup.trim() || !dropoff.trim()) {
     alert(
@@ -513,13 +542,14 @@ const estimateLoadedMiles = async (
 
     const loadedMiles = String(miles);
 
-    setForm((previousForm) => ({
-      ...previousForm,
-      loaded_miles: loadedMiles,
-    }));
+if (!keepExistingMiles) {
+  setForm((previousForm) => ({
+    ...previousForm,
+    loaded_miles: loadedMiles,
+  }));
 
-    setMileageSource("estimated");
-
+  setMileageSource("estimated");
+}
     if (
       Array.isArray(data.state_miles) &&
       data.state_miles.length > 0
@@ -564,13 +594,22 @@ const estimateLoadedMiles = async (
 
     return loadedMiles;
   } catch (error) {
-    alert(
-      error instanceof Error
-        ? error.message
-        : "Truck mileage could not be calculated. Enter it manually."
+  if (keepExistingMiles) {
+    console.warn(
+      "Route fuel estimate unavailable. Using the company default fuel price.",
+      error
     );
 
     return "";
+  }
+
+  alert(
+    error instanceof Error
+      ? error.message
+      : "Truck mileage could not be calculated. Enter it manually."
+  );
+
+  return "";
   } finally {
     setEstimatingMileage(false);
   }
@@ -597,9 +636,21 @@ const approveRateConReview = async (
   setRateConReview(null);
 
   if (rateConMiles) {
-    setMileageSource("rate-con");
-    return;
-  }
+  setMileageSource("rate-con");
+
+  await estimateLoadedMiles(
+    review.pickup,
+    review.dropoff,
+    true
+  );
+
+  setForm((previousForm) => ({
+    ...previousForm,
+    loaded_miles: rateConMiles,
+  }));
+
+  return;
+}
 
   await estimateLoadedMiles(
     review.pickup,
@@ -735,9 +786,19 @@ loaded_miles_source:
   mileageSource || "manual",
 deadhead_miles: deadheadMiles,
 
-        ...toLoadProfitColumns(profitResult),
+       ...toLoadProfitColumns(profitResult),
 
-        rate_con_url: rateConUrl || null,
+fuel_price_source:
+  profitResult.fuelCostSource === "manual"
+    ? "Manual fuel cost"
+    : routeFuelEstimate?.source || "Company default",
+
+fuel_price_as_of:
+  profitResult.fuelCostSource === "manual"
+    ? null
+    : routeFuelEstimate?.as_of || null,
+
+rate_con_url: rateConUrl || null,
       },
     ]);
 
@@ -913,7 +974,9 @@ const cancelLoad = async (loadId: string) => {
     ),
 
     truckMpg: selectedTruck?.mpg,
-    settings: financialSettings,
+estimatedFuelPrice:
+  load.fuel_price_used ?? null,
+settings: financialSettings,
   });
 
   const { error } = await supabase
@@ -1199,13 +1262,25 @@ const updateBol = async (loadId: string, bol: string) => {
     </p>
   )}
 </div>
-<Input
-  placeholder="Fuel Cost (blank = estimate)"
-  value={form.fuel_cost}
-  onChange={(value) =>
-    setForm({ ...form, fuel_cost: value })
-  }
-/>
+<div className="space-y-1">
+  <Input
+    placeholder="Fuel Cost (blank = estimate)"
+    value={form.fuel_cost}
+    onChange={(value) =>
+      setForm({
+        ...form,
+        fuel_cost: value,
+      })
+    }
+  />
+
+  {!form.fuel_cost.trim() && routeFuelEstimate && (
+    <p className="px-1 text-[10px] font-medium uppercase tracking-wider text-cyan-400">
+      Route average diesel: $
+      {routeFuelEstimate.price_per_gallon.toFixed(3)}/gal
+    </p>
+  )}
+</div>
 
 <Input
   placeholder="Other Expenses"
@@ -1257,6 +1332,7 @@ const updateBol = async (loadId: string, bol: string) => {
                     <LoadCard
                       key={load.id}
                       load={load}
+                      currentTime={currentTime}
                       role={role}
                       drivers={drivers}
                       editingLoadId={editingLoadId}
@@ -1337,6 +1413,7 @@ function calculateEstimatedFuelCost({
 function LoadCard({
   openProfitDetails,
   load,
+  currentTime,
   drivers,
   role, 
   editingLoadId,
@@ -1388,6 +1465,7 @@ completeLoad: (loadId: string) => void;
 cancelLoad: (loadId: string) => void;
 saveEditedLoad: (loadId: string) => Promise<void>;
   load: Load;
+  currentTime: number;
   drivers: Driver[];
   role: string;
   setDraggingId: (id: string | null) => void;
@@ -1398,6 +1476,35 @@ saveEditedLoad: (loadId: string) => Promise<void>;
   updateBol: (loadId: string, bol: string) => void;
   openProfitDetails: (load: Load) => void;
 }) {
+  const hasLocation =
+  load.driver_lat != null &&
+  load.driver_lng != null;
+
+const lastLocationTime = load.updated_at
+  ? new Date(load.updated_at).getTime()
+  : 0;
+
+const locationIsFresh =
+  lastLocationTime > 0 &&
+  currentTime - lastLocationTime <= 120_000;
+
+const isTrackingLive =
+  hasLocation &&
+  load.tracking_active === true &&
+  locationIsFresh;
+
+const hasSignalLoss =
+  hasLocation &&
+  load.tracking_active === true &&
+  !locationIsFresh;
+
+const trackingLabel = isTrackingLive
+  ? "Tracking Live"
+  : hasSignalLoss
+    ? "Signal Lost"
+    : hasLocation
+      ? "Tracking Stopped"
+      : "Awaiting Location";
   return (
     <div
       draggable
@@ -1573,11 +1680,28 @@ saveEditedLoad: (loadId: string) => Promise<void>;
   </p>
 )}
 
-{load.tracking_active && (
-  <div className="mt-3 inline-flex rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-[11px] font-semibold text-green-300">
-    Tracking Active
-  </div>
-)}
+<button
+  type="button"
+  onClick={() => {
+    window.open(
+      `/track/${load.id}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }}
+  className={`mt-3 inline-flex cursor-pointer rounded-full border px-3 py-1 text-[11px] font-semibold transition hover:brightness-125 ${
+    isTrackingLive
+      ? "border-green-500/30 bg-green-500/10 text-green-300"
+      : hasSignalLoss
+        ? "border-red-500/40 bg-red-500/10 text-red-300"
+        : hasLocation
+          ? "border-slate-600 bg-slate-500/10 text-slate-300"
+          : "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"
+  }`}
+  title="Open driver location"
+>
+  {trackingLabel}
+</button>
   
 <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
   <TimePill label="Assigned" value={load.assigned_at} />

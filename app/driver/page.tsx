@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Navbar from "../components/Navbar";
 import { supabase } from "../lib/supabase";
 
@@ -26,7 +26,9 @@ export default function DriverPage() {
   const [loads, setLoads] = useState<Load[]>([]);
   const [email, setEmail] = useState("");
   const [selectedLoad, setSelectedLoad] = useState<Load | null>(null);
-
+const [trackingLoadId, setTrackingLoadId] = useState<string | null>(null);
+const watchIdRef = useRef<number | null>(null);
+const lastLocationSaveRef = useRef(0);
   useEffect(() => {
     getUser();
 
@@ -91,12 +93,29 @@ export default function DriverPage() {
     const { error } = await supabase
       .from("loads")
       .update({
-        status: cleanStatus,
-        ...timestampUpdate,
-      })
+  status: cleanStatus,
+  ...timestampUpdate,
+  ...(cleanStatus === "Delivered"
+    ? { tracking_active: false }
+    : {}),
+})
       .eq("id", loadId);
 
     if (error) return alert(error.message);
+    if (
+  cleanStatus === "Delivered" &&
+  trackingLoadId === loadId
+) {
+  if (watchIdRef.current !== null) {
+    navigator.geolocation.clearWatch(
+      watchIdRef.current
+    );
+    watchIdRef.current = null;
+  }
+
+  setTrackingLoadId(null);
+  lastLocationSaveRef.current = 0;
+}
 
     await supabase.from("notifications").insert({
       title: `Load ${loadId.slice(0, 6)} Updated`,
@@ -143,35 +162,140 @@ export default function DriverPage() {
     fetchLoads();
   };
 
-  const startTracking = async (load: Load) => {
-    if (!navigator.geolocation) {
-      alert("Location tracking is not available on this device.");
-      return;
-    }
+  const stopTracking = async (loadId: string) => {
+  if (watchIdRef.current !== null) {
+    navigator.geolocation.clearWatch(watchIdRef.current);
+    watchIdRef.current = null;
+  }
 
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
+  const { error } = await supabase
+    .from("loads")
+    .update({
+      tracking_active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", loadId);
 
-        const { error } = await supabase
-          .from("loads")
-          .update({
-            driver_lat: latitude,
-            driver_lng: longitude,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", load.id);
+  setTrackingLoadId(null);
+  lastLocationSaveRef.current = 0;
 
-        if (error) return alert(error.message);
+  if (error) {
+    alert(error.message);
+    return;
+  }
 
-        alert("Tracking updated");
-        fetchLoads();
-      },
-      () => {
-        alert("Location permission denied.");
+  alert("Live tracking stopped.");
+};
+
+const startTracking = async (load: Load) => {
+  if (!navigator.geolocation) {
+    alert("Location tracking is not available on this device.");
+    return;
+  }
+
+  if (watchIdRef.current !== null) {
+    navigator.geolocation.clearWatch(watchIdRef.current);
+    watchIdRef.current = null;
+  }
+
+  if (trackingLoadId && trackingLoadId !== load.id) {
+    await supabase
+      .from("loads")
+      .update({
+        tracking_active: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", trackingLoadId);
+  }
+
+  lastLocationSaveRef.current = 0;
+  let isFirstUpdate = true;
+
+  watchIdRef.current = navigator.geolocation.watchPosition(
+    async (position) => {
+      const now = Date.now();
+
+      if (
+        !isFirstUpdate &&
+        now - lastLocationSaveRef.current < 30_000
+      ) {
+        return;
       }
-    );
-  };
+
+      lastLocationSaveRef.current = now;
+
+      const locationUpdate: {
+        driver_lat: number;
+        driver_lng: number;
+        tracking_active: boolean;
+        tracking_started_at?: string;
+        updated_at: string;
+      } = {
+        driver_lat: position.coords.latitude,
+        driver_lng: position.coords.longitude,
+        tracking_active: true,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (isFirstUpdate) {
+        locationUpdate.tracking_started_at =
+          new Date().toISOString();
+      }
+
+      const { error } = await supabase
+        .from("loads")
+        .update(locationUpdate)
+        .eq("id", load.id);
+
+      if (error) {
+        if (watchIdRef.current !== null) {
+          navigator.geolocation.clearWatch(
+            watchIdRef.current
+          );
+          watchIdRef.current = null;
+        }
+
+        setTrackingLoadId(null);
+        alert(error.message);
+        return;
+      }
+
+      setTrackingLoadId(load.id);
+
+      if (isFirstUpdate) {
+        isFirstUpdate = false;
+        alert("Live tracking started.");
+      }
+    },
+    (error) => {
+      watchIdRef.current = null;
+      setTrackingLoadId(null);
+
+      if (error.code === error.PERMISSION_DENIED) {
+        alert(
+          "Location permission is blocked. Allow location access in your browser settings and try again."
+        );
+        return;
+      }
+
+      if (error.code === error.POSITION_UNAVAILABLE) {
+        alert(
+          "Your current location is unavailable. Check Location Services and try again."
+        );
+        return;
+      }
+
+      alert(
+        "Location request timed out. Check your signal and try again."
+      );
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 10_000,
+      timeout: 20_000,
+    }
+  );
+};
 
   return (
     <div className="min-h-screen bg-[#020617] p-3 pb-32 text-white sm:p-6">
@@ -192,6 +316,8 @@ export default function DriverPage() {
             updateStatus={updateStatus}
             uploadDoc={uploadDoc}
             startTracking={startTracking}
+            stopTracking={stopTracking}
+trackingLoadId={trackingLoadId}
           />
         ))}
 
@@ -216,7 +342,10 @@ function DriverLoadCard({
   updateStatus,
   uploadDoc,
   startTracking,
+  stopTracking,
+  trackingLoadId,
 }: any) {
+  const isTracking = trackingLoadId === load.id;
   return (
     <div
       onClick={() => setSelectedLoad(load)}
@@ -361,15 +490,27 @@ function DriverLoadCard({
   )}
 </div>
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              startTracking(load);
-            }}
-            className="mt-4 w-full rounded-2xl border border-[#16BFFF]/40 bg-[#16BFFF]/10 py-4 text-base font-semibold text-[#16BFFF]"
-          >
-            Start Tracking
-          </button>
+  <button
+  type="button"
+  onClick={(event) => {
+    event.stopPropagation();
+
+    if (isTracking) {
+      stopTracking(load.id);
+    } else {
+      startTracking(load);
+    }
+  }}
+  className={`mt-4 w-full rounded-2xl border py-4 text-base font-semibold transition ${
+    isTracking
+      ? "border-red-500/40 bg-red-500/10 text-red-300"
+      : "border-[#16BFFF]/40 bg-[#16BFFF]/10 text-[#16BFFF]"
+  }`}
+>
+  {isTracking
+    ? "Stop Live Tracking"
+    : "Start Live Tracking"}
+</button>
         </>
       )}
     </div>

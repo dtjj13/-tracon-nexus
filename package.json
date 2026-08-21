@@ -11,6 +11,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
     "date-fns": "^4.1.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.14.0",
     "next": "16.2.4",
     "openai": "^6.36.0",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.22",
     "@types/node": "^20",
     "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",

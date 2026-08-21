@@ -15,6 +15,8 @@ type Load = {
   driver_phone?: string;
   driver_lat?: number;
   driver_lng?: number;
+  tracking_active?: boolean;
+tracking_started_at?: string;
   bol_url?: string;
   pod_url?: string;
   rate_con_url?: string;
@@ -55,7 +57,19 @@ export default function TrackingPage() {
   const loadId = params.loadId as string;
 
   const [load, setLoad] = useState<Load | null>(null);
+const [currentTime, setCurrentTime] = useState(
+  () => Date.now()
+);
 
+useEffect(() => {
+  const timer = window.setInterval(() => {
+    setCurrentTime(Date.now());
+  }, 30_000);
+
+  return () => {
+    window.clearInterval(timer);
+  };
+}, []);
   useEffect(() => {
     fetchLoad();
 
@@ -100,7 +114,35 @@ export default function TrackingPage() {
     (step) => step.label.toLowerCase() === load.status?.toLowerCase()
   );
 
-  const hasLocation = !!load.driver_lat && !!load.driver_lng;
+  const hasLocation =
+  load.driver_lat != null &&
+  load.driver_lng != null;
+
+const lastLocationTime = load.updated_at
+  ? new Date(load.updated_at).getTime()
+  : 0;
+
+const locationIsFresh =
+  lastLocationTime > 0 &&
+  currentTime - lastLocationTime <= 120_000;
+
+const isTrackingActive =
+  hasLocation &&
+  load.tracking_active === true &&
+  locationIsFresh;
+
+const hasSignalLoss =
+  hasLocation &&
+  load.tracking_active === true &&
+  !locationIsFresh;
+
+const trackingLabel = isTrackingActive
+  ? "Live Tracking Active"
+  : hasSignalLoss
+    ? "Signal Lost"
+    : hasLocation
+      ? "Tracking Stopped"
+      : "Awaiting Location";
 
   return (
     <div className="min-h-screen bg-[#020617] p-4 text-white sm:p-6">
@@ -145,15 +187,19 @@ export default function TrackingPage() {
               
             </div>
 
-            <div
-              className={`rounded-xl border px-4 py-2 text-sm ${
-                hasLocation
-                  ? "border-green-500/30 bg-green-500/10 text-green-300"
-                  : "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"
-              }`}
-            >
-              {hasLocation ? "Live Location Active" : "Awaiting Location"}
-            </div>
+           <div
+  className={`rounded-xl border px-4 py-2 text-sm ${
+    isTrackingActive
+      ? "border-green-500/30 bg-green-500/10 text-green-300"
+      : hasSignalLoss
+        ? "border-red-500/40 bg-red-500/10 text-red-300"
+        : hasLocation
+          ? "border-slate-600 bg-slate-500/10 text-slate-300"
+          : "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"
+  }`}
+>
+  {trackingLabel}
+</div>
           </div>
 
           {hasLocation ? (
@@ -170,8 +216,10 @@ export default function TrackingPage() {
                       Truck Position
                     </p>
                     <p className="text-xs text-slate-400">
-                      Last reported location
-                    </p>
+  {hasLocation
+    ? `Last location updated ${formatDateTime(load.updated_at)}`
+    : "No location reported yet"}
+</p>
                   </div>
                 </div>
 

@@ -13,6 +13,7 @@ import {
   Users,
   Wallet,
   Wrench,
+  MapPinned,
 } from "lucide-react";
 
 type Props = {
@@ -76,6 +77,14 @@ export default function OwnerDepartmentMenu({
           statusColor:
             dispatchCount > 0 ? "text-cyan-400" : "text-slate-500",
         },
+        {
+  title: "Live Fleet Map",
+  subtitle: "Driver locations and signals",
+  href: "/owner/fleet-tracking",
+  icon: MapPinned,
+  status: "Live",
+  statusColor: "text-green-400",
+},
         {
           title: "Drivers",
           subtitle: "Driver management",

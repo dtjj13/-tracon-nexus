@@ -289,7 +289,7 @@ async function fetchLatestPrice(
     next: {
       revalidate: 21_600,
     },
-    signal: AbortSignal.timeout(12_000),
+    signal: AbortSignal.timeout(20_000),
   });
 
   const payload = (await response.json()) as unknown;
