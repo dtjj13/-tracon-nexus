@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   ArrowRight,
   BrainCircuit,
@@ -8,7 +7,6 @@ import {
 } from "lucide-react";
 
 type Props = {
-  companyHealth: number;
   missingPODs: number;
   missingRateCons: number;
   negativeProfitLoads: number;
@@ -20,7 +18,6 @@ type Props = {
 };
 
 export default function ExecutiveAI({
-  companyHealth,
   missingPODs,
   missingRateCons,
   negativeProfitLoads,
@@ -108,34 +105,14 @@ export default function ExecutiveAI({
             AI Executive Brief
           </p>
 
-          <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-semibold text-white">
-                {greeting}, Derrick
-              </h2>
+          <div className="mt-2">
+            <h2 className="text-2xl font-semibold text-white">
+              {greeting}, Derrick
+            </h2>
 
-              <p className="mt-1 text-sm text-slate-400">
-                Live summary generated from your current operational data.
-              </p>
-            </div>
-
-            <div className="text-left lg:text-right">
-              <p className="text-xs uppercase tracking-wider text-slate-500">
-                Company Health
-              </p>
-
-              <p
-                className={`mt-1 text-3xl font-bold ${
-                  companyHealth >= 80
-                    ? "text-cyan-400"
-                    : companyHealth >= 65
-                      ? "text-yellow-400"
-                      : "text-red-400"
-                }`}
-              >
-                {companyHealth}%
-              </p>
-            </div>
+            <p className="mt-1 text-sm text-slate-400">
+              Live summary generated from your current operational data.
+            </p>
           </div>
 
           <div className="mt-6 grid gap-3 md:grid-cols-2">
@@ -203,13 +180,6 @@ export default function ExecutiveAI({
             </div>
           </div>
 
-          <Link
-            href="/owner/ai"
-            className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#16BFFF] transition hover:text-cyan-300"
-          >
-            Open AI Executive
-                       <ArrowRight className="h-4 w-4" />
-          </Link>
         </div>
       </div>
     </section>
@@ -266,4 +236,4 @@ function money(value: number) {
   return `$${Number(value || 0).toLocaleString("en-US", {
     maximumFractionDigits: 2,
   })}`;
-} 
+}

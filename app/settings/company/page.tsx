@@ -1,294 +1,370 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  Building2,
+  CheckCircle2,
+  ImagePlus,
+  Loader2,
+  Save,
+  Trash2,
+} from "lucide-react";
+import Navbar from "../../components/Navbar";
 import { supabase } from "../../lib/supabase";
 
-type FinancialSettings = {
-  id: string;
-  monthly_insurance_per_truck: number;
-  average_monthly_miles_per_truck: number;
-  default_mpg: number;
-  default_fuel_price: number;
-  factoring_percent: number;
-  insurance_per_mile?: number;
+type CompanyForm = {
+  id: string | number | null;
+  company_name: string;
+  company_logo_url: string;
+};
+
+type MessageType = "success" | "error" | "";
+
+const EMPTY_COMPANY: CompanyForm = {
+  id: null,
+  company_name: "",
+  company_logo_url: "",
 };
 
 export default function CompanySettingsPage() {
-  const [settings, setSettings] = useState<FinancialSettings | null>(null);
+  const [company, setCompany] = useState<CompanyForm>(EMPTY_COMPANY);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<MessageType>("");
 
   useEffect(() => {
-    loadSettings();
+    void loadCompany();
   }, []);
 
-  async function loadSettings() {
-    setLoading(true);
-
-    const { data, error } = await supabase
-      .from("company_financial_settings")
-      .select("*")
-      .single();
-
-    if (error) {
-      console.error("Error loading financial settings:", error);
-      setMessage("Unable to load financial settings.");
-      setLoading(false);
+  useEffect(() => {
+    if (!logoFile) {
+      setPreviewUrl(company.company_logo_url);
       return;
     }
 
-    if (data) {
-      setSettings(data);
+    const objectUrl = URL.createObjectURL(logoFile);
+    setPreviewUrl(objectUrl);
+
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [logoFile, company.company_logo_url]);
+
+  async function loadCompany() {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("company_settings")
+      .select("id, company_name, company_logo_url")
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Unable to load company profile:", error);
+      setMessage("Unable to load the company profile.");
+      setMessageType("error");
+    } else if (data) {
+      setCompany({
+        id: data.id,
+        company_name: data.company_name || "",
+        company_logo_url: data.company_logo_url || "",
+      });
     }
 
     setLoading(false);
   }
 
-  async function saveSettings() {
-    if (!settings) return;
+  function handleLogoChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    setSaving(true);
-    setMessage("");
+    const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
 
-    const { error } = await supabase
-      .from("company_financial_settings")
-      .update({
-        monthly_insurance_per_truck:
-          settings.monthly_insurance_per_truck,
-        average_monthly_miles_per_truck:
-          settings.average_monthly_miles_per_truck,
-        default_mpg: settings.default_mpg,
-        default_fuel_price: settings.default_fuel_price,
-        factoring_percent: settings.factoring_percent,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", settings.id);
-
-    if (error) {
-      console.error("Error saving financial settings:", error);
-      setMessage("There was a problem saving your settings.");
-      setSaving(false);
+    if (!allowedTypes.includes(file.type)) {
+      setMessage("Choose a PNG, JPG, or WebP logo.");
+      setMessageType("error");
+      event.target.value = "";
       return;
     }
 
-    setMessage("Financial settings saved successfully.");
-    setSaving(false);
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage("The logo must be 5 MB or smaller.");
+      setMessageType("error");
+      event.target.value = "";
+      return;
+    }
 
-    await loadSettings();
+    setLogoFile(file);
+    setMessage("");
+    setMessageType("");
   }
 
-  const insurancePerMile = useMemo(() => {
-    if (!settings) return 0;
+  function removeLogo() {
+    setLogoFile(null);
+    setCompany((current) => ({ ...current, company_logo_url: "" }));
+    setMessage("Logo removed from the preview. Save to confirm.");
+    setMessageType("");
+  }
 
-    const insurance = Number(
-      settings.monthly_insurance_per_truck || 0
-    );
+  async function saveCompany() {
+    const companyName = company.company_name.trim();
 
-    const miles = Number(
-      settings.average_monthly_miles_per_truck || 0
-    );
+    if (!companyName) {
+      setMessage("Enter the company name before saving.");
+      setMessageType("error");
+      return;
+    }
 
-    if (miles <= 0) return 0;
+    setSaving(true);
+    setMessage("");
+    setMessageType("");
 
-    return insurance / miles;
-  }, [settings]);
+    try {
+      let companyLogoUrl = company.company_logo_url;
+
+      if (logoFile) {
+        const extension =
+          logoFile.name.split(".").pop()?.toLowerCase() || "png";
+        const filePath = `company-branding/logo-${Date.now()}.${extension}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("documents")
+          .upload(filePath, logoFile, {
+            cacheControl: "3600",
+            upsert: false,
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicData } = supabase.storage
+          .from("documents")
+          .getPublicUrl(filePath);
+
+        companyLogoUrl = publicData.publicUrl;
+      }
+
+      const payload = {
+        company_name: companyName,
+        company_logo_url: companyLogoUrl,
+      };
+
+      let savedData: {
+        id: string | number;
+        company_name: string | null;
+        company_logo_url: string | null;
+      };
+
+      if (company.id !== null) {
+        const { data, error } = await supabase
+          .from("company_settings")
+          .update(payload)
+          .eq("id", company.id)
+          .select("id, company_name, company_logo_url")
+          .single();
+
+        if (error) throw error;
+        if (!data) throw new Error("The company profile could not be saved.");
+        savedData = data;
+      } else {
+        const { data, error } = await supabase
+          .from("company_settings")
+          .insert(payload)
+          .select("id, company_name, company_logo_url")
+          .single();
+
+        if (error) throw error;
+        if (!data) throw new Error("The company profile could not be created.");
+        savedData = data;
+      }
+
+      const saved: CompanyForm = {
+        id: savedData.id,
+        company_name: savedData.company_name || companyName,
+        company_logo_url: savedData.company_logo_url || "",
+      };
+
+      setCompany(saved);
+      setLogoFile(null);
+
+      window.dispatchEvent(
+        new CustomEvent("tracon:company-updated", {
+          detail: {
+            company_name: saved.company_name,
+            company_logo_url: saved.company_logo_url,
+          },
+        })
+      );
+
+      setMessage("Company profile and logo saved.");
+      setMessageType("success");
+    } catch (error) {
+      console.error("Unable to save company profile:", error);
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to save the company profile."
+      );
+      setMessageType("error");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (loading) {
     return (
-      <div className="p-10 text-slate-400">
-        Loading Financial Settings...
-      </div>
-    );
-  }
-
-  if (!settings) {
-    return (
-      <div className="p-10 text-red-400">
-        Financial settings could not be loaded.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-8">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-400">
-          Company Settings
-        </p>
-
-        <h1 className="mt-2 text-4xl font-bold text-white">
-          Financial Settings
-        </h1>
-
-        <p className="mt-2 max-w-3xl text-slate-400">
-          These values are used throughout TRACON Nexus to calculate
-          insurance cost per mile, estimated fuel expenses, factoring
-          costs, load profitability, and future financial reporting.
-        </p>
-      </div>
-
-      <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-8">
-        <div className="grid gap-6 md:grid-cols-2">
-          <Field
-            label="Monthly Insurance Per Truck"
-            value={settings.monthly_insurance_per_truck}
-            prefix="$"
-            onChange={(value) =>
-              setSettings({
-                ...settings,
-                monthly_insurance_per_truck: Number(value),
-              })
-            }
-          />
-
-          <Field
-            label="Average Monthly Miles Per Truck"
-            value={settings.average_monthly_miles_per_truck}
-            suffix="mi"
-            onChange={(value) =>
-              setSettings({
-                ...settings,
-                average_monthly_miles_per_truck: Number(value),
-              })
-            }
-          />
-
-          <Field
-            label="Default MPG"
-            value={settings.default_mpg}
-            suffix="MPG"
-            onChange={(value) =>
-              setSettings({
-                ...settings,
-                default_mpg: Number(value),
-              })
-            }
-          />
-
-          <Field
-            label="Average Fuel Price"
-            value={settings.default_fuel_price}
-            prefix="$"
-            onChange={(value) =>
-              setSettings({
-                ...settings,
-                default_fuel_price: Number(value),
-              })
-            }
-          />
-
-          <Field
-            label="Factoring Percentage"
-            value={settings.factoring_percent}
-            suffix="%"
-            onChange={(value) =>
-              setSettings({
-                ...settings,
-                factoring_percent: Number(value),
-              })
-            }
-          />
-
-          <Field
-            label="Insurance Per Mile"
-            value={insurancePerMile.toFixed(4)}
-            prefix="$"
-            suffix="/mi"
-            disabled
-          />
-        </div>
-
-        <div className="mt-8 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">
-            Insurance Calculation
-          </p>
-
-          <p className="mt-3 text-sm text-slate-400">
-            Monthly Insurance Per Truck
-            <span className="mx-2 text-slate-600">÷</span>
-            Average Monthly Miles Per Truck
-          </p>
-
-          <p className="mt-2 text-xl font-semibold text-white">
-            ${insurancePerMile.toFixed(4)} per mile
-          </p>
-        </div>
-
-        <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            {message && (
-              <p
-                className={`text-sm ${
-                  message.includes("successfully")
-                    ? "text-green-400"
-                    : "text-red-400"
-                }`}
-              >
-                {message}
-              </p>
-            )}
+      <main className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
+        <div className="mx-auto max-w-[1400px]">
+          <Navbar />
+          <div className="mt-6 flex min-h-[420px] items-center justify-center rounded-3xl border border-slate-800 bg-[#07101A]">
+            <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
           </div>
-
-          <button
-            type="button"
-            onClick={saveSettings}
-            disabled={saving}
-            className="rounded-xl bg-[#16BFFF] px-6 py-3 font-semibold text-[#020617] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Save Financial Settings"}
-          </button>
         </div>
-      </div>
-    </div>
-  );
-}
+      </main>
+    );
+  }
 
-function Field({
-  label,
-  value,
-  disabled = false,
-  onChange,
-  prefix,
-  suffix,
-}: {
-  label: string;
-  value: string | number;
-  disabled?: boolean;
-  onChange?: (value: string) => void;
-  prefix?: string;
-  suffix?: string;
-}) {
   return (
-    <div>
-      <label className="mb-2 block text-sm font-medium text-slate-400">
-        {label}
-      </label>
+    <main className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
+      <div className="mx-auto max-w-[1400px]">
+        <Navbar />
 
-      <div className="relative">
-        {prefix && (
-          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
-            {prefix}
-          </span>
-        )}
+        <div className="mt-6">
+          <Link
+            href="/settings"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-[#07101A] px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-cyan-500/40 hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Settings
+          </Link>
+        </div>
 
-        <input
-          type="number"
-          step="any"
-          disabled={disabled}
-          value={value ?? ""}
-          onChange={(e) => onChange?.(e.target.value)}
-          className={`w-full rounded-xl border border-slate-700 bg-[#0B1522] py-3 text-lg text-white transition focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-70 ${
-            prefix ? "pl-9" : "pl-4"
-          } ${suffix ? "pr-14" : "pr-4"}`}
-        />
+        <section className="mt-4 overflow-hidden rounded-3xl border border-slate-800 bg-[#07101A]">
+          <header className="border-b border-slate-800 px-5 py-6 sm:px-8">
+            <div className="flex items-start gap-4">
+              <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-3 text-cyan-400">
+                <Building2 className="h-6 w-6" />
+              </div>
 
-        {suffix && (
-          <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-500">
-            {suffix}
-          </span>
-        )}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.3em] text-cyan-400">
+                  Company Settings
+                </p>
+                <h1 className="mt-2 text-3xl font-bold">Company Profile</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                  Update the carrier name and logo shown in the TRACON Nexus header.
+                </p>
+              </div>
+            </div>
+          </header>
+
+          <div className="grid gap-6 p-5 sm:p-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+            <section className="rounded-2xl border border-slate-800 bg-[#050d18] p-5">
+              <label className="text-sm font-semibold text-white">
+                Company name
+              </label>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                This name appears beside the logo throughout the dashboard.
+              </p>
+
+              <input
+                value={company.company_name}
+                onChange={(event) =>
+                  setCompany((current) => ({
+                    ...current,
+                    company_name: event.target.value,
+                  }))
+                }
+                placeholder="Company name"
+                className="mt-4 w-full rounded-xl border border-slate-700 bg-[#07101A] px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-500"
+              />
+
+              <button
+                type="button"
+                onClick={saveCompany}
+                disabled={saving}
+                className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E6BFF] to-[#00A3FF] px-5 py-3 font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              >
+                {saving ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Save className="h-5 w-5" />
+                )}
+                {saving ? "Saving..." : "Save Company Profile"}
+              </button>
+
+              {message && (
+                <div
+                  className={`mt-4 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${
+                    messageType === "error"
+                      ? "border-red-500/30 bg-red-500/10 text-red-300"
+                      : messageType === "success"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                        : "border-slate-700 bg-slate-900/60 text-slate-300"
+                  }`}
+                >
+                  {messageType === "success" && (
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <span>{message}</span>
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-[#050d18] p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-white">Company logo</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    PNG, JPG, or WebP. Maximum file size: 5 MB.
+                  </p>
+                </div>
+
+                {(previewUrl || company.company_logo_url) && (
+                  <button
+                    type="button"
+                    onClick={removeLogo}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-500/10"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-4 flex min-h-48 items-center justify-center rounded-2xl border border-dashed border-slate-700 bg-[#07101A] p-5">
+                {previewUrl ? (
+                  <img
+                    src={previewUrl}
+                    alt="Company logo preview"
+                    className="max-h-40 max-w-full object-contain"
+                  />
+                ) : (
+                  <div className="text-center text-slate-500">
+                    <ImagePlus className="mx-auto h-9 w-9" />
+                    <p className="mt-3 text-sm font-semibold">
+                      No company logo uploaded
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <label className="mt-4 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-300 transition hover:bg-cyan-500/15">
+                <ImagePlus className="h-5 w-5" />
+                {previewUrl ? "Choose a different logo" : "Upload company logo"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleLogoChange}
+                  className="hidden"
+                />
+              </label>
+            </section>
+          </div>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }

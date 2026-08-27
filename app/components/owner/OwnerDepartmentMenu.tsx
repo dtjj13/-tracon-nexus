@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
-  BrainCircuit,
   Building2,
   DollarSign,
   Settings,
@@ -55,14 +54,6 @@ export default function OwnerDepartmentMenu({
           href: "/owner",
           icon: BarChart3,
         },
-        {
-          title: "AI Executive",
-          subtitle: "Insights and recommendations",
-          href: "/owner/ai",
-          icon: BrainCircuit,
-          status: "Live",
-          statusColor: "text-cyan-400",
-        },
       ],
     },
     {
@@ -87,17 +78,17 @@ export default function OwnerDepartmentMenu({
 },
         {
           title: "Drivers",
-          subtitle: "Driver management",
-          href: "/drivers",
+subtitle: "Driver management and pay",
+href: "/settings/drivers",
           icon: Users,
           status: String(activeDrivers),
           statusColor:
             activeDrivers > 0 ? "text-green-400" : "text-slate-500",
         },
         {
-          title: "Fleet",
-          subtitle: "Maintenance and equipment",
-          href: "/fleet",
+         title: "Trucks",
+subtitle: "Truck and maintenance settings",
+href: "/settings/trucks",
           icon: Wrench,
           status:
             maintenanceDue === null
@@ -115,7 +106,7 @@ export default function OwnerDepartmentMenu({
         {
           title: "Safety",
           subtitle: "Compliance center",
-          href: "/safety",
+          href: "/settings/safety",
           icon: ShieldCheck,
           status:
             safetyAlerts === null
@@ -143,8 +134,8 @@ export default function OwnerDepartmentMenu({
         },
         {
           title: "Payroll",
-          subtitle: "Driver and employee pay",
-          href: "/payroll",
+          subtitle: "Driver earnings by load",
+          href: "/settings/pay",
           icon: Wallet,
         },
         {
@@ -164,12 +155,7 @@ export default function OwnerDepartmentMenu({
   href: "/settings/company",
   icon: Building2,
 },
-{
-  title: "Financial Settings",
-  subtitle: "Fuel, insurance, mileage",
-  href: "/settings/financials",
-  icon: DollarSign,
-},
+
 {
   title: "Settings",
   subtitle: "System configuration",

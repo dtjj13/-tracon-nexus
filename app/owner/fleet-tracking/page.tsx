@@ -202,7 +202,7 @@ const mapLocations = useMemo<FleetMapLocation[]>(
 
   return (
     <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
-      <div className="w-full px-2 sm:px-6">
+      <div className="mx-auto w-full max-w-[1800px] px-0 sm:px-6">
         <Navbar />
 
         <div className="grid items-start gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">

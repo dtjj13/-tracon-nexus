@@ -5,9 +5,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  BrainCircuit,
   LayoutDashboard,
+  MapPinned,
+  Settings,
   Truck,
-  Users,
   Menu,
   X,
   LogOut,
@@ -62,6 +64,13 @@ export default function Navbar() {
     getCompany();
     fetchNotifications();
 
+    const handleCompanyUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<CompanySettings>).detail;
+      if (detail) setCompany(detail);
+    };
+
+    window.addEventListener("tracon:company-updated", handleCompanyUpdated);
+
     const channel = supabase
       .channel("navbar-notifications")
       .on(
@@ -78,6 +87,10 @@ export default function Navbar() {
       .subscribe();
 
     return () => {
+      window.removeEventListener(
+        "tracon:company-updated",
+        handleCompanyUpdated
+      );
       supabase.removeChannel(channel);
     };
   }, []);
@@ -113,7 +126,10 @@ export default function Navbar() {
   };
 
   const navLink = (href: string, icon: ReactNode, label: string) => {
-    const active = pathname === href;
+    const active =
+      href === "/owner"
+        ? pathname === href
+        : pathname === href || pathname.startsWith(`${href}/`);
 
     return (
       <Link
@@ -234,7 +250,17 @@ export default function Navbar() {
         <div className="flex flex-col gap-3">
           {navLink("/owner", <LayoutDashboard size={18} />, "Owner Dashboard")}
           {navLink("/dispatch", <Truck size={18} />, "Dispatch Board")}
-          {navLink("/settings", <Users size={18} />, "Management")}
+              {navLink(
+                "/load-decision",
+                <BrainCircuit size={18} />,
+                "Load Decision Engine"
+              )}
+              {navLink(
+                "/owner/fleet-tracking",
+                <MapPinned size={18} />,
+                "Live Fleet"
+              )}
+              {navLink("/settings", <Settings size={18} />, "Management")}
         </div>
 
         <div className="absolute bottom-6 left-6 right-6">

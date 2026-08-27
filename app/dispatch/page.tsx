@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "../components/Navbar";
 import { supabase } from "../lib/supabase";
@@ -14,7 +14,17 @@ import {
 import {
   calculateLoadProfit,
   toLoadProfitColumns,
+  type LoadProfitInput,
 } from "../lib/loadProfit";
+import {
+  evaluateLoadDecision,
+  type DriverPayRule,
+} from "../lib/loadDecision";
+import {
+  LOAD_DECISION_DRAFT_KEY,
+  type LoadDecisionDraft,
+} from "../lib/loadDecisionDraft";
+import { BrainCircuit } from "lucide-react";
 import ProfitDetailsDrawer from "../components/dispatch/ProfitDetailsDrawer";
 import RateConReviewModal, {
   type RateConReviewData,
@@ -665,7 +675,100 @@ const approveRateConReview = async (
     return 0;
   };
 
- const addLoad = async () => {
+  const getDriverPayRule = (driver: Driver): DriverPayRule => {
+    const type: DriverPayRule["type"] =
+      driver.pay_type === "CPM" ||
+      driver.pay_type === "Percentage" ||
+      driver.pay_type === "Flat"
+        ? driver.pay_type
+        : "None";
+
+    return {
+      type,
+      rate: Number(driver.pay_rate || 0),
+    };
+  };
+
+  const loadDecisionInput = useMemo<LoadProfitInput | null>(() => {
+    if (!financialSettings) return null;
+
+    const revenue = Number(form.rate || 0);
+    const loadedMiles = Number(form.loaded_miles || 0);
+    const selectedDriver = drivers.find(
+      (driver) => driver.id === form.driver_id
+    );
+
+    if (
+      !selectedDriver ||
+      !Number.isFinite(revenue) ||
+      revenue <= 0 ||
+      !Number.isFinite(loadedMiles) ||
+      loadedMiles <= 0
+    ) {
+      return null;
+    }
+
+    const deadheadMiles = Number(form.deadhead_miles || 0);
+    const manualFuelCost = Number(form.fuel_cost);
+    const otherExpenses = Number(form.other_expenses || 0);
+    const selectedTruck = trucks.find(
+      (truck) =>
+        truck.id === form.truck_id || truck.id === selectedDriver.truck_id
+    );
+
+    return {
+      revenue,
+      loadedMiles,
+      deadheadMiles:
+        Number.isFinite(deadheadMiles) && deadheadMiles > 0
+          ? deadheadMiles
+          : 0,
+      driverPay: calculateDriverPay(selectedDriver, revenue, loadedMiles),
+      manualFuelCost:
+        form.fuel_cost.trim() && Number.isFinite(manualFuelCost)
+          ? manualFuelCost
+          : null,
+      otherExpenses:
+        Number.isFinite(otherExpenses) && otherExpenses > 0 ? otherExpenses : 0,
+      truckMpg: selectedTruck?.mpg,
+      estimatedFuelPrice: routeFuelEstimate?.price_per_gallon ?? null,
+      settings: financialSettings,
+    };
+  }, [drivers, financialSettings, form, routeFuelEstimate, trucks]);
+
+  const loadDecision = useMemo(
+    () => (loadDecisionInput ? evaluateLoadDecision(loadDecisionInput) : null),
+    [loadDecisionInput]
+  );
+
+  const openLoadDecisionEngine = () => {
+    if (loadDecisionInput) {
+      const selectedDriver = drivers.find(
+        (driver) => driver.id === form.driver_id
+      );
+      const draft: LoadDecisionDraft = {
+        version: 1,
+        pickup: form.pickup,
+        dropoff: form.dropoff,
+        input: loadDecisionInput,
+        driverPayRule: selectedDriver
+          ? getDriverPayRule(selectedDriver)
+          : undefined,
+        savedAt: new Date().toISOString(),
+      };
+
+      window.sessionStorage.setItem(
+        LOAD_DECISION_DRAFT_KEY,
+        JSON.stringify(draft)
+      );
+    } else {
+      window.sessionStorage.removeItem(LOAD_DECISION_DRAFT_KEY);
+    }
+
+    router.push("/load-decision");
+  };
+
+  const addLoad = async () => {
   if (!form.pickup || !form.dropoff || !form.driver_id) {
     alert("Fill pickup, dropoff, and select driver");
     return;
@@ -1069,7 +1172,28 @@ const updateBol = async (loadId: string, bol: string) => {
     <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
       <div className="space-y-6">
         <Navbar />
+{(role === "owner" || role === "admin") && (
+  <a
+    href="/owner/fleet-tracking"
+    aria-label="Open Live Fleet Map"
+    title="Open Live Fleet Map"
+    className="fixed bottom-24 right-6 z-50 inline-flex items-center gap-2 rounded-full border border-cyan-400/40 bg-[#071522]/95 px-4 py-3 text-sm font-semibold text-cyan-300 shadow-[0_12px_40px_rgba(0,163,255,0.28)] backdrop-blur transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-cyan-500/15 hover:text-white"
+  >
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className="h-5 w-5"
+      aria-hidden="true"
+    >
+      <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
 
+    <span className="hidden sm:inline">Live Fleet</span>
+  </a>
+)}
         <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5 shadow-[0_0_30px_rgba(0,0,0,0.45)]">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -1297,6 +1421,7 @@ const updateBol = async (loadId: string, bol: string) => {
               + Create Load
             </button>
           </div>
+
         </div>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
@@ -1364,6 +1489,27 @@ saveEditedLoad={saveEditedLoad}
           })}
                </div>
       </div>
+      <button
+        type="button"
+        onClick={openLoadDecisionEngine}
+        className="fixed bottom-5 right-5 z-40 inline-flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-2xl border border-cyan-400/30 bg-[#071522]/95 px-4 py-3 text-left shadow-[0_16px_45px_rgba(0,0,0,0.55),0_0_28px_rgba(0,163,255,0.18)] backdrop-blur transition hover:-translate-y-0.5 hover:border-cyan-300/60"
+        aria-label="Open Load Decision Engine"
+      >
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
+          <BrainCircuit className="h-5 w-5" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">
+            Load Engine
+          </span>
+          <span className="block truncate text-xs font-semibold text-white">
+            {loadDecision
+              ? `${loadDecision.score}/100 · ${loadDecision.recommendation.toUpperCase()}`
+              : "Analyze a load"}
+          </span>
+        </span>
+      </button>
+
 <RateConReviewModal
   data={rateConReview}
   fileName={rateConFile?.name}

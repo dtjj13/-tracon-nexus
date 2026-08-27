@@ -15,13 +15,22 @@ type Truck = {
   license_plate?: string;
   mpg?: number | null;
   active: boolean;
-  vehicle_type?: string;
+  vehicle_type?: string | null;
 };
+
+function formatVehicleType(value?: string | null) {
+  if (!value) return "Not set";
+
+  return value
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
 
 export default function TrucksSettingsPage() {
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [editingTruckId, setEditingTruckId] = useState<string | null>(null);
-const router = useRouter();
+  const router = useRouter();
   const [truckForm, setTruckForm] = useState({
     truck_number: "",
     vin: "",
@@ -78,20 +87,27 @@ const router = useRouter();
   const startEditTruck = (truck: Truck) => {
     setEditingTruckId(truck.id);
     setTruckForm({
-  truck_number: "",
-  vin: "",
-  make: "",
-  model: "",
-  year: "",
-  license_plate: "",
-  mpg: "",
-  vehicle_type: "",
-});
+      truck_number: truck.truck_number ?? "",
+      vin: truck.vin ?? "",
+      make: truck.make ?? "",
+      model: truck.model ?? "",
+      year: truck.year ?? "",
+      license_plate: truck.license_plate ?? "",
+      mpg: truck.mpg == null ? "" : String(truck.mpg),
+      vehicle_type: truck.vehicle_type ?? "",
+    });
   };
 
   const saveTruck = async () => {
     if (!truckForm.truck_number) {
       alert("Truck number is required");
+      return;
+    }
+
+    const mpg = truckForm.mpg.trim() ? Number(truckForm.mpg) : null;
+
+    if (mpg !== null && (!Number.isFinite(mpg) || mpg <= 0)) {
+      alert("MPG must be a number greater than 0.");
       return;
     }
 
@@ -102,7 +118,7 @@ const router = useRouter();
       model: truckForm.model,
       year: truckForm.year,
       license_plate: truckForm.license_plate,
-      mpg: truckForm.mpg ? Number(truckForm.mpg) : null,
+      mpg,
       vehicle_type: truckForm.vehicle_type,
     };
 
@@ -153,14 +169,14 @@ const router = useRouter();
     <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
       <div className="space-y-6">
         <Navbar />
-<div className="mb-4">
-  <button
-    onClick={() => router.back()}
-    className="rounded-xl border border-slate-700 bg-[#07101A] px-4 py-2 text-sm text-slate-300 transition hover:border-[#00A3FF] hover:text-white"
-  >
-    ← Back
-  </button>
-</div>
+        <div className="mb-4">
+          <button
+            onClick={() => router.back()}
+            className="rounded-xl border border-slate-700 bg-[#07101A] px-4 py-2 text-sm text-slate-300 transition hover:border-[#00A3FF] hover:text-white"
+          >
+            ← Back
+          </button>
+        </div>
         <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5">
           <h1 className="text-xl font-semibold text-white">Trucks</h1>
         </div>
@@ -260,7 +276,7 @@ const router = useRouter();
               <tr>
                 <th className="p-4 text-left">Truck</th>
                 <th className="p-4 text-left">VIN</th>
-                <th>Type</th>
+                <th className="p-4 text-left">Type</th>
                 <th className="p-4 text-left">Make / Model</th>
                 <th className="p-4 text-left">Plate</th>
                 <th className="p-4 text-left">MPG</th>
@@ -275,13 +291,10 @@ const router = useRouter();
                   <td className="p-4 font-semibold text-white">
                     {truck.truck_number}
                   </td>
-                  <p className="text-xs text-slate-400">
-  Type:{" "}
-  <span className="text-white">
-    {truck.vehicle_type || "Not Set"}
-  </span>
-</p>
                   <td className="p-4">{truck.vin || "-"}</td>
+                  <td className="p-4 text-slate-300">
+                    {formatVehicleType(truck.vehicle_type)}
+                  </td>
                   <td className="p-4">
                     {truck.year || ""} {truck.make || ""} {truck.model || ""}
                   </td>
@@ -327,7 +340,7 @@ const router = useRouter();
 
               {trucks.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-slate-500">
+                  <td colSpan={8} className="p-6 text-center text-slate-500">
                     No trucks added yet.
                   </td>
                 </tr>

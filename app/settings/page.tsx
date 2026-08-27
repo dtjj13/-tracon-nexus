@@ -6,10 +6,10 @@ import {
   Building2,
   ChevronRight,
   CircleDollarSign,
-  Fuel,
   Truck,
   UserCog,
   Users,
+  Wallet,
 } from "lucide-react";
 
 const cards = [
@@ -17,7 +17,7 @@ const cards = [
   { title: "Drivers", href: "/settings/drivers", icon: Users },
   { title: "Trucks", href: "/settings/trucks", icon: Truck },
   { title: "Users & Roles", href: "/settings/users", icon: UserCog },
-  { title: "Pay & Fuel", href: "/settings/pay", icon: Fuel },
+  { title: "Payroll", href: "/settings/pay", icon: Wallet },
   {
     title: "Financial Settings",
     href: "/settings/financials",

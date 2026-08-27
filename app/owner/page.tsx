@@ -11,7 +11,6 @@ import TodaysBusiness from "../components/owner/TodaysBusiness";
 import TodaysFocus from "../components/owner/TodaysFocus";
 import ExecutiveAI from "../components/owner/ExecutiveAI";
 import ExecutiveTimeline from "../components/owner/ExecutiveTimeline";
-import ExecutiveScore from "../components/owner/ExecutiveScore";
 import ProfitDetailsDrawer from "../components/dispatch/ProfitDetailsDrawer";
 import { hasRole } from "../lib/getUserRole";
 import { supabase } from "../lib/supabase";
@@ -324,11 +323,11 @@ const companyHealth = clampScore(
 
   return (
     <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
-      <div className="w-full px-6">
+      <div className="mx-auto w-full max-w-[1800px] px-0 sm:px-6">
         <Navbar />
 
         <div className="grid items-start gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
-          <aside className="xl:sticky xl:top-6">
+          <aside className="hidden xl:sticky xl:top-6 xl:block">
             <OwnerDepartmentMenu
   dispatchCount={analytics.activeLoads}
   activeDrivers={analytics.activeDrivers}
@@ -344,7 +343,6 @@ const companyHealth = clampScore(
   />
 
 <ExecutiveAI
-  companyHealth={analytics.companyHealth}
   missingPODs={analytics.missingPODs}
   missingRateCons={analytics.missingRateCons}
   negativeProfitLoads={analytics.negativeProfitLoads.length}
@@ -366,12 +364,6 @@ const companyHealth = clampScore(
     fleet={analytics.fleetHealth}
     safety={analytics.safetyHealth}
     financials={analytics.financialHealth}
-/>
-<ExecutiveScore
-  companyHealth={analytics.companyHealth}
-  dispatchHealth={analytics.dispatchHealth}
-  driverHealth={analytics.driverHealth}
-  financialHealth={analytics.financialHealth}
 />
   <TodaysFocus
     missingPODs={analytics.missingPODs}
