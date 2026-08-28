@@ -14,6 +14,13 @@ import {
   X,
   LogOut,
   Bell,
+  BarChart3,
+Building2,
+DollarSign,
+ShieldCheck,
+Users,
+Wallet,
+Wrench,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
@@ -247,21 +254,77 @@ export default function Navbar() {
           </button>
         </div>
 
-        <div className="flex flex-col gap-3">
-          {navLink("/owner", <LayoutDashboard size={18} />, "Owner Dashboard")}
-          {navLink("/dispatch", <Truck size={18} />, "Dispatch Board")}
-              {navLink(
-                "/load-decision",
-                <BrainCircuit size={18} />,
-                "Load Decision Engine"
-              )}
-              {navLink(
-                "/owner/fleet-tracking",
-                <MapPinned size={18} />,
-                "Live Fleet"
-              )}
-              {navLink("/settings", <Settings size={18} />, "Management")}
-        </div>
+        {navLink(
+  "/owner",
+  <LayoutDashboard size={18} />,
+  "Owner Dashboard"
+)}
+
+{navLink(
+  "/dispatch",
+  <Truck size={18} />,
+  "Dispatch Board"
+)}
+
+{navLink(
+  "/load-decision",
+  <BrainCircuit size={18} />,
+  "Load Decision Engine"
+)}
+
+{navLink(
+  "/owner/fleet-tracking",
+  <MapPinned size={18} />,
+  "Live Fleet Map"
+)}
+
+{navLink(
+  "/settings/drivers",
+  <Users size={18} />,
+  "Drivers"
+)}
+
+{navLink(
+  "/settings/trucks",
+  <Wrench size={18} />,
+  "Trucks & Maintenance"
+)}
+
+{navLink(
+  "/settings/safety",
+  <ShieldCheck size={18} />,
+  "Safety & Compliance"
+)}
+
+{navLink(
+  "/settings/pay",
+  <Wallet size={18} />,
+  "Payroll Center"
+)}
+
+{navLink(
+  "/reports",
+  <BarChart3 size={18} />,
+  "Reports & Intelligence"
+)}
+
+{navLink(
+  "/owner/financials",
+  <DollarSign size={18} />,
+  "Financial Settings"
+)}
+
+{navLink(
+  "/settings/company",
+  <Building2 size={18} />,
+  "Company Profile"
+)}
+
+{navLink(
+  "/settings",
+  <Settings size={18} />,
+  "All Settings"
+)}
 
         <div className="absolute bottom-6 left-6 right-6">
           {email && (
