@@ -1,5 +1,9 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Server environment
+
+The mobile truck-routing proxy requires `GRAPHHOPPER_API_KEY` as a protected server environment variable. The key must never be embedded in Android or iOS builds.
+
 ## Getting Started
 
 First, run the development server:
