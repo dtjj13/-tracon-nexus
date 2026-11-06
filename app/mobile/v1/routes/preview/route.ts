@@ -249,7 +249,7 @@ function addLimit(
   if (limit === null) return;
 
   priority.push({
-    if: `${encodedValue} < ${round(limit, 3)}`,
+    if: `${encodedValue} > 0 && ${encodedValue} < ${round(limit, 3)}`,
     multiply_by: "0",
   });
 }
