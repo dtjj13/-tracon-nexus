@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import Navbar from "../../components/Navbar";
@@ -28,61 +28,48 @@ const roles = [
 
 export default function UsersPage() {
   const router = useRouter();
-useEffect(() => {
-  const checkRole = async () => {
-    const allowed = await hasRole(["owner", "admin"]);
-
-if (!allowed) {
-  router.push("/dispatch");
-}
-  };
-
-  checkRole();
-}, [router]);
   const [users, setUsers] = useState<Profile[]>([]);
+  const [authorized, setAuthorized] = useState(false);
   const [form, setForm] = useState({
     name: "",
     email: "",
     role: "dispatcher",
   });
 
-  const checkAccess = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user?.email) {
-      router.push("/login");
-      return;
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("email", user.email)
-      .single();
-
-    if (profile?.role !== "owner" && profile?.role !== "admin") {
-      alert("Only owner/admin can access user settings.");
-      router.push("/dispatch");
-    }
-  };
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     const { data, error } = await supabase
       .from("profiles")
-      .select("*")
+      .select("id,email,name,role,active")
       .order("created_at", { ascending: false });
 
     if (error) return alert(error.message);
 
     setUsers(data || []);
-  };
+  }, []);
 
   useEffect(() => {
-    checkAccess();
-    fetchUsers();
-  }, []);
+    let active = true;
+
+    async function checkAccess() {
+      const allowed = await hasRole(["owner", "admin"]);
+
+      if (!active) return;
+
+      if (!allowed) {
+        router.replace("/dispatch");
+        return;
+      }
+
+      setAuthorized(true);
+      await fetchUsers();
+    }
+
+    void checkAccess();
+
+    return () => {
+      active = false;
+    };
+  }, [fetchUsers, router]);
 
   const addUser = async () => {
     if (!form.name || !form.email || !form.role) {
@@ -107,10 +94,10 @@ if (!allowed) {
       role: "dispatcher",
     });
 
-    fetchUsers();
+    await fetchUsers();
 
     alert(
-      "User profile added. They still need to create an account using the same email on the login page."
+      "User profile added. Account invitation setup is still required before a new user can sign in."
     );
   };
 
@@ -122,7 +109,7 @@ if (!allowed) {
 
     if (error) return alert(error.message);
 
-    fetchUsers();
+    await fetchUsers();
   };
 
   const toggleActive = async (user: Profile) => {
@@ -133,11 +120,21 @@ if (!allowed) {
 
     if (error) return alert(error.message);
 
-    fetchUsers();
+    await fetchUsers();
   };
+
+  if (!authorized) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#020617] text-sm text-slate-400">
+        Verifying access…
+      </div>
+    );
+  }
 
   return (
   <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
+
+    <Navbar />
 
     <div className="mb-4">
       <button
@@ -151,12 +148,20 @@ if (!allowed) {
    
       
 
-      <p className="text-slate-400 mt-2">Settings / Users & Roles</p>
+      <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#16BFFF]">
+          Settings
+        </p>
+        <h1 className="mt-2 text-xl font-semibold">Users &amp; Roles</h1>
+        <p className="mt-2 text-sm text-slate-400">
+          Manage company access and choose what each team member can work with.
+        </p>
+      </div>
 
       <div className="mt-6 rounded-xl border border-slate-800 bg-[#07101A] p-5">
         <h2 className="text-xl font-bold">Add User</h2>
 
-        <div className="mt-4 grid grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <input
             placeholder="Full Name"
             value={form.name}

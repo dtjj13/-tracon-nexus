@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import NextImage from "next/image";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -12,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import Navbar from "../../components/Navbar";
+import RoleGate from "../../components/RoleGate";
 import { supabase } from "../../lib/supabase";
 
 type CompanyForm = {
@@ -29,29 +31,20 @@ const EMPTY_COMPANY: CompanyForm = {
 };
 
 export default function CompanySettingsPage() {
+  return (
+    <RoleGate allowed={["owner", "admin"]}>
+      <CompanySettingsContent />
+    </RoleGate>
+  );
+}
+
+function CompanySettingsContent() {
   const [company, setCompany] = useState<CompanyForm>(EMPTY_COMPANY);
   const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("");
-
-  useEffect(() => {
-    void loadCompany();
-  }, []);
-
-  useEffect(() => {
-    if (!logoFile) {
-      setPreviewUrl(company.company_logo_url);
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(logoFile);
-    setPreviewUrl(objectUrl);
-
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [logoFile, company.company_logo_url]);
 
   async function loadCompany() {
     setLoading(true);
@@ -76,6 +69,22 @@ export default function CompanySettingsPage() {
 
     setLoading(false);
   }
+
+  useEffect(() => {
+    // Initial company-profile hydration is intentionally performed after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCompany();
+  }, []);
+
+  const previewUrl = useMemo(
+    () => (logoFile ? URL.createObjectURL(logoFile) : company.company_logo_url),
+    [logoFile, company.company_logo_url]
+  );
+
+  useEffect(() => {
+    if (!logoFile || !previewUrl.startsWith("blob:")) return;
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [logoFile, previewUrl]);
 
   function handleLogoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -336,9 +345,12 @@ export default function CompanySettingsPage() {
 
               <div className="mt-4 flex min-h-48 items-center justify-center rounded-2xl border border-dashed border-slate-700 bg-[#07101A] p-5">
                 {previewUrl ? (
-                  <img
+                  <NextImage
                     src={previewUrl}
                     alt="Company logo preview"
+                    width={320}
+                    height={160}
+                    unoptimized
                     className="max-h-40 max-w-full object-contain"
                   />
                 ) : (

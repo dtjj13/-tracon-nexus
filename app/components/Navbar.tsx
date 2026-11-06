@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BrainCircuit,
+  ClipboardCheck,
   LayoutDashboard,
   MapPinned,
   Settings,
@@ -15,14 +16,15 @@ import {
   LogOut,
   Bell,
   BarChart3,
-Building2,
-DollarSign,
-ShieldCheck,
-Users,
-Wallet,
-Wrench,
+  Building2,
+  DollarSign,
+  ShieldCheck,
+  Users,
+  Wallet,
+  Wrench,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { getUserRole, type UserRole } from "../lib/getUserRole";
 
 type CompanySettings = {
   company_name?: string;
@@ -47,6 +49,17 @@ export default function Navbar() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [company, setCompany] = useState<CompanySettings | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [role, setRole] = useState<UserRole | null>(null);
+
+  const fetchNotifications = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("id,title,message,type,read,created_at")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (!error) setNotifications(data || []);
+  }, []);
 
   useEffect(() => {
     const getUser = async () => {
@@ -55,6 +68,7 @@ export default function Navbar() {
       } = await supabase.auth.getUser();
 
       setEmail(user?.email || "");
+      setRole(await getUserRole());
     };
 
     const getCompany = async () => {
@@ -69,7 +83,6 @@ export default function Navbar() {
 
     getUser();
     getCompany();
-    fetchNotifications();
 
     const handleCompanyUpdated = (event: Event) => {
       const detail = (event as CustomEvent<CompanySettings>).detail;
@@ -78,39 +91,61 @@ export default function Navbar() {
 
     window.addEventListener("tracon:company-updated", handleCompanyUpdated);
 
-    const channel = supabase
-      .channel("navbar-notifications")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "notifications",
-        },
-        () => {
-          fetchNotifications();
-        }
-      )
-      .subscribe();
-
     return () => {
       window.removeEventListener(
         "tracon:company-updated",
         handleCompanyUpdated
       );
-      supabase.removeChannel(channel);
     };
   }, []);
 
-  const fetchNotifications = async () => {
-    const { data, error } = await supabase
-      .from("notifications")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(10);
+  const canViewOperationalAlerts =
+    role === "owner" ||
+    role === "admin" ||
+    role === "dispatcher" ||
+    role === "manager";
 
-    if (!error) setNotifications(data || []);
-  };
+  useEffect(() => {
+    if (!canViewOperationalAlerts) {
+      return;
+    }
+
+    // Initial alert hydration is intentionally performed after role resolution.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchNotifications();
+
+    const channel = supabase
+      .channel("navbar-notifications")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications" },
+        () => void fetchNotifications()
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [canViewOperationalAlerts, fetchNotifications]);
+
+  useEffect(() => {
+    if (!open && !notificationsOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function closeDrawer(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      setNotificationsOpen(false);
+    }
+
+    document.addEventListener("keydown", closeDrawer);
+    return () => {
+      document.removeEventListener("keydown", closeDrawer);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [notificationsOpen, open]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -154,16 +189,30 @@ export default function Navbar() {
     );
   };
 
+  const canView = (allowedRoles: UserRole[]) =>
+    role !== null && allowedRoles.includes(role);
+
+  const homeHref = role ? (
+    role === "owner" || role === "admin" ? "/owner" :
+    role === "dispatcher" || role === "manager" ? "/dispatch" :
+    role === "driver" ? "/driver" :
+    role === "safety" ? "/settings/safety" :
+    role === "payroll" ? "/settings/pay" : "/settings/trucks"
+  ) : "/login";
+
   return (
     <>
       <div className="mb-6 border-b border-slate-800 pb-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <Link href="/dispatch" className="flex items-center gap-4">
+          <Link href={homeHref} className="flex items-center gap-4">
             <div className="flex items-center gap-3">
               {company?.company_logo_url ? (
-                <img
+                <Image
                   src={company.company_logo_url}
                   alt={company.company_name || "Carrier Logo"}
+                  width={180}
+                  height={48}
+                  unoptimized
                   className="h-12 w-auto rounded-lg object-contain"
                 />
               ) : (
@@ -192,21 +241,30 @@ export default function Navbar() {
               </p>
             )}
 
-            <button
-              onClick={() => setNotificationsOpen(true)}
-              className="relative flex items-center justify-center rounded-xl border border-slate-700 bg-[#07101A] px-3 py-2 text-white shadow-[0_0_12px_rgba(30,107,255,0.15)] transition hover:border-[#00A3FF] hover:bg-slate-800"
-            >
-              <Bell size={20} />
+            {canViewOperationalAlerts && (
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen(true)}
+                aria-label="Open notifications"
+                aria-expanded={notificationsOpen}
+                aria-controls="notification-drawer"
+                className="relative flex items-center justify-center rounded-xl border border-slate-700 bg-[#07101A] px-3 py-2 text-white shadow-[0_0_12px_rgba(30,107,255,0.15)] transition hover:border-[#00A3FF] hover:bg-slate-800"
+              >
+                <Bell size={20} />
 
-              {unreadCount > 0 && (
-                <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
+                {unreadCount > 0 && (
+                  <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             <button
+              type="button"
               onClick={() => setOpen(true)}
+              aria-expanded={open}
+              aria-controls="navigation-drawer"
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-[#07101A] px-4 py-2 text-sm text-white shadow-[0_0_12px_rgba(30,107,255,0.15)] transition hover:border-[#00A3FF] hover:bg-slate-800 sm:w-auto"
             >
               <Menu size={20} />
@@ -227,6 +285,12 @@ export default function Navbar() {
       )}
 
       <div
+        id="navigation-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+        aria-hidden={!open}
+        inert={!open}
         className={`fixed left-0 top-0 z-50 h-full w-80 max-w-[85vw] border-r border-slate-800 bg-[#07101A] p-6 text-white shadow-2xl transition-transform duration-300 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
@@ -247,84 +311,110 @@ export default function Navbar() {
           </div>
 
           <button
+            type="button"
             onClick={() => setOpen(false)}
+            aria-label="Close navigation menu"
             className="rounded-xl bg-slate-800 px-3 py-2 transition hover:bg-slate-700"
           >
             <X size={18} />
           </button>
         </div>
 
-        {navLink(
-  "/owner",
-  <LayoutDashboard size={18} />,
-  "Owner Dashboard"
-)}
+        {canView(["owner", "admin"]) && navLink(
+          "/owner",
+          <LayoutDashboard size={18} />,
+          "Owner Dashboard"
+        )}
 
-{navLink(
-  "/dispatch",
-  <Truck size={18} />,
-  "Dispatch Board"
-)}
+        {canView(["owner", "admin", "dispatcher", "manager"]) && navLink(
+          "/dispatch",
+          <Truck size={18} />,
+          "Dispatch Board"
+        )}
 
-{navLink(
-  "/load-decision",
-  <BrainCircuit size={18} />,
-  "Load Decision Engine"
-)}
+        {canView(["owner", "admin", "driver"]) && navLink(
+          "/driver",
+          <Truck size={18} />,
+          "My Loads"
+        )}
 
-{navLink(
-  "/owner/fleet-tracking",
-  <MapPinned size={18} />,
-  "Live Fleet Map"
-)}
+        {canView(["owner", "admin", "driver"]) && navLink(
+          "/driver/dvir",
+          <ClipboardCheck size={18} />,
+          "DVIR Inspection"
+        )}
 
-{navLink(
-  "/settings/drivers",
-  <Users size={18} />,
-  "Drivers"
-)}
+        {canView(["owner", "admin", "dispatcher", "manager"]) && navLink(
+          "/load-decision",
+          <BrainCircuit size={18} />,
+          "Load Decision Engine"
+        )}
 
-{navLink(
-  "/settings/trucks",
-  <Wrench size={18} />,
-  "Trucks & Maintenance"
-)}
+        {canView(["owner", "admin", "dispatcher", "manager"]) && navLink(
+          "/maps",
+          <MapPinned size={18} />,
+          "Tracon Maps"
+        )}
 
-{navLink(
-  "/settings/safety",
-  <ShieldCheck size={18} />,
-  "Safety & Compliance"
-)}
+        {canView(["owner", "admin", "manager"]) && navLink(
+          "/owner/fleet-tracking",
+          <MapPinned size={18} />,
+          "Live Fleet Map"
+        )}
 
-{navLink(
-  "/settings/pay",
-  <Wallet size={18} />,
-  "Payroll Center"
-)}
+        {canView(["owner", "admin", "manager"]) && navLink(
+          "/settings/drivers",
+          <Users size={18} />,
+          "Drivers"
+        )}
 
-{navLink(
-  "/reports",
-  <BarChart3 size={18} />,
-  "Reports & Intelligence"
-)}
+        {canView(["owner", "admin", "manager", "maintenance"]) && navLink(
+          "/settings/trucks",
+          <Truck size={18} />,
+          "Trucks"
+        )}
 
-{navLink(
-  "/owner/financials",
-  <DollarSign size={18} />,
-  "Financial Settings"
-)}
+        {canView(["owner", "admin", "manager", "maintenance"]) && navLink(
+          "/settings/maintenance",
+          <Wrench size={18} />,
+          "Maintenance"
+        )}
 
-{navLink(
-  "/settings/company",
-  <Building2 size={18} />,
-  "Company Profile"
-)}
+        {canView(["owner", "admin", "manager", "safety"]) && navLink(
+          "/settings/safety",
+          <ShieldCheck size={18} />,
+          "Safety & Compliance"
+        )}
 
-{navLink(
-  "/settings",
-  <Settings size={18} />,
-  "All Settings"
-)}
+        {canView(["owner", "admin", "payroll"]) && navLink(
+          "/settings/pay",
+          <Wallet size={18} />,
+          "Payroll Center"
+        )}
+
+        {canView(["owner", "admin", "manager"]) && navLink(
+          "/reports",
+          <BarChart3 size={18} />,
+          "Reports & Intelligence"
+        )}
+
+        {canView(["owner", "admin"]) && navLink(
+          "/owner/financials",
+          <DollarSign size={18} />,
+          "Financial Settings"
+        )}
+
+        {canView(["owner", "admin"]) && navLink(
+          "/settings/company",
+          <Building2 size={18} />,
+          "Company Profile"
+        )}
+
+        {canView(["owner", "admin"]) && navLink(
+          "/settings",
+          <Settings size={18} />,
+          "All Settings"
+        )}
 
         <div className="absolute bottom-6 left-6 right-6">
           {email && (
@@ -350,6 +440,12 @@ export default function Navbar() {
       )}
 
       <div
+        id="notification-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Notifications"
+        aria-hidden={!notificationsOpen}
+        inert={!notificationsOpen}
         className={`fixed right-0 top-0 z-50 h-full w-96 max-w-[90vw] border-l border-slate-800 bg-[#07101A] p-6 text-white shadow-2xl transition-transform duration-300 ${
           notificationsOpen ? "translate-x-0" : "translate-x-full"
         }`}
@@ -365,7 +461,9 @@ export default function Navbar() {
           </div>
 
           <button
+            type="button"
             onClick={() => setNotificationsOpen(false)}
+            aria-label="Close notifications"
             className="rounded-xl bg-slate-800 px-3 py-2 transition hover:bg-slate-700"
           >
             <X size={18} />
@@ -373,6 +471,7 @@ export default function Navbar() {
         </div>
 
         <button
+          type="button"
           onClick={markAllRead}
           className="mb-4 w-full rounded-xl border border-slate-700 bg-[#0B1522] px-4 py-2 text-sm text-slate-300 transition hover:border-[#00A3FF] hover:text-white"
         >

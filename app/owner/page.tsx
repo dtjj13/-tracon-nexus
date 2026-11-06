@@ -55,52 +55,6 @@ export default function OwnerDashboard() {
   const [profitDetailsLoad, setProfitDetailsLoad] =
   useState<Load | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
-
-    const initializeDashboard = async () => {
-      const allowed = await hasRole(["owner", "admin"]);
-
-      if (!allowed) {
-        router.push("/dispatch");
-        return;
-      }
-
-      if (mounted) {
-        await fetchData();
-      }
-    };
-
-    initializeDashboard();
-
-    const channel = supabase
-      .channel("owner-dashboard-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "loads",
-        },
-        fetchData
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "drivers",
-        },
-        fetchData
-      )
-      .subscribe();
-
-    return () => {
-      mounted = false;
-      supabase.removeChannel(channel);
-    };
-  }, [router]);
-
   const fetchData = async () => {
     try {
       const [loadsResult, driversResult] = await Promise.all([
@@ -137,6 +91,42 @@ export default function OwnerDashboard() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const initializeDashboard = async () => {
+      const allowed = await hasRole(["owner", "admin"]);
+
+      if (!allowed) {
+        router.push("/dispatch");
+        return;
+      }
+
+      if (mounted) await fetchData();
+    };
+
+    void initializeDashboard();
+
+    const channel = supabase
+      .channel("owner-dashboard-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "loads" },
+        () => void fetchData()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "drivers" },
+        () => void fetchData()
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [router]);
 
   const filteredLoads = useMemo(() => {
     const now = new Date();
@@ -528,103 +518,6 @@ function ExecutiveSnapshot({
   );
 }
 
-function RecentLoads({ loads }: { loads: Load[] }) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-slate-800 bg-[#07101A]">
-      <div className="flex items-center justify-between gap-4 border-b border-slate-800 p-5">
-        <div>
-          <p className="text-xs uppercase tracking-[0.25em] text-[#16BFFF]">
-            Recent Activity
-          </p>
-
-          <h2 className="mt-1 text-lg font-semibold text-white">
-            Recent Loads
-          </h2>
-        </div>
-
-        <span className="text-xs text-slate-500">
-          Latest 5 loads
-        </span>
-      </div>
-
-      <div className="divide-y divide-slate-800">
-        {loads.map((load) => (
-          <div
-            key={load.id}
-            className="grid gap-3 p-5 transition hover:bg-[#0B1522] sm:grid-cols-[1.2fr_1fr_auto]"
-          >
-            <div>
-              <p className="font-semibold text-[#16BFFF]">
-                {load.broker_load_id ||
-                  load.tracon_id ||
-                  "Unnumbered load"}
-              </p>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Driver: {load.driver_name || "Unassigned"}
-              </p>
-            </div>
-
-            <div>
-              <p
-                className={`text-sm font-semibold ${statusColor(
-                  load.status
-                )}`}
-              >
-                {load.status || "No status"}
-              </p>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Profit:{" "}
-                <span
-                  className={
-                   getLoadNetProfit(load) >= 0
-                      ? "text-green-400"
-                      : "text-red-400"
-                  }
-                >
-                 {money(getLoadNetProfit(load))}
-                </span>
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 sm:justify-end">
-              {load.cancelled && (
-                <span className="rounded-full bg-yellow-500/10 px-2.5 py-1 text-xs font-semibold text-yellow-300">
-                  Cancelled
-                </span>
-              )}
-
-              {load.archived && (
-                <span className="rounded-full bg-slate-700/50 px-2.5 py-1 text-xs font-semibold text-slate-300">
-                  Archived
-                </span>
-              )}
-
-              {!load.cancelled && !load.archived && (
-                <span
-                  className={
-                    load.pod_url
-                      ? "rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-semibold text-green-400"
-                      : "rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400"
-                  }
-                >
-                  {load.pod_url ? "POD Uploaded" : "POD Missing"}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-
-        {loads.length === 0 && (
-          <div className="p-8 text-center text-sm text-slate-500">
-            No loads found for this period.
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
 function getLoadNetProfit(load: Load) {
   return Number(
     load.net_profit ?? load.profit ?? 0
@@ -636,12 +529,6 @@ function sum(loads: Load[], key: keyof Load) {
       total + Number(load[key] || 0),
     0
   );
-}
-
-function money(value?: number) {
-  return `$${Number(value || 0).toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 function clean(value?: string) {
@@ -656,30 +543,4 @@ function capitalize(value: string) {
 }
 function clampScore(score: number) {
   return Math.max(0, Math.min(100, Math.round(score)));
-}
-
-function statusColor(status?: string) {
-  const value = clean(status);
-
-  if (value === "pending") {
-    return "text-yellow-400";
-  }
-
-  if (value === "assigned") {
-    return "text-cyan-400";
-  }
-
-  if (value === "arrived at pickup") {
-    return "text-indigo-400";
-  }
-
-  if (value === "in transit") {
-    return "text-[#16BFFF]";
-  }
-
-  if (value === "delivered") {
-    return "text-green-400";
-  }
-
-  return "text-slate-300";
 }

@@ -57,7 +57,7 @@ export default function TodaysBusiness({
   return (
     <section>
       <h2 className="mb-4 text-lg font-semibold text-white">
-        Today's Business
+        Today&apos;s Business
       </h2>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">

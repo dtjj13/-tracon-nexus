@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import Navbar from "../components/Navbar";
+import RoleGate from "../components/RoleGate";
+import DriverWorkspace from "../components/driver/DriverWorkspace";
 import { supabase } from "../lib/supabase";
 
 type Load = {
@@ -22,29 +24,38 @@ type Load = {
   pod_url?: string;
 };
 
+type UpdateStatus = (loadId: string, status: string) => Promise<void>;
+type UploadDocument = (
+  load: Load,
+  field: "bol_url" | "pod_url",
+  file: File | null
+) => Promise<void>;
+type StartTracking = (load: Load) => Promise<void>;
+type StopTracking = (loadId: string) => Promise<void>;
+
 export default function DriverPage() {
+  return (
+    <RoleGate allowed={["owner", "admin", "driver"]}>
+      <DriverWorkspace />
+    </RoleGate>
+  );
+}
+
+export function LegacyDriverPage() {
+  return (
+    <RoleGate allowed={["owner", "admin", "driver"]}>
+      <DriverContent />
+    </RoleGate>
+  );
+}
+
+function DriverContent() {
   const [loads, setLoads] = useState<Load[]>([]);
   const [email, setEmail] = useState("");
   const [selectedLoad, setSelectedLoad] = useState<Load | null>(null);
 const [trackingLoadId, setTrackingLoadId] = useState<string | null>(null);
 const watchIdRef = useRef<number | null>(null);
 const lastLocationSaveRef = useRef(0);
-  useEffect(() => {
-    getUser();
-
-    const channel = supabase
-      .channel("driver-loads-realtime")
-      .on(
-  "postgres_changes",
-  { event: "*", schema: "public", table: "loads" },
-  () => fetchLoads()
-)
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [email]);
 
   const getUser = async () => {
     const {
@@ -74,6 +85,27 @@ const lastLocationSaveRef = useRef(0);
       setSelectedLoad(data[0]);
     }
   };
+
+  /* eslint-disable react-hooks/set-state-in-effect -- Initial async driver-session hydration. */
+  useEffect(() => {
+    void getUser();
+
+    const channel = supabase
+      .channel("driver-loads-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "loads" },
+        () => void fetchLoads()
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+    // The subscription is intentionally recreated after the user email loads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateStatus = async (loadId: string, status: string) => {
     const cleanStatus = status.trim();
@@ -140,7 +172,11 @@ const lastLocationSaveRef = useRef(0);
 
     const { data } = supabase.storage.from("documents").getPublicUrl(fileName);
 
-    const updatePayload: any = {
+    const updatePayload: {
+      bol_url?: string;
+      pod_url?: string;
+      pod_uploaded_at?: string;
+    } = {
       [field]: data.publicUrl,
     };
 
@@ -344,7 +380,16 @@ function DriverLoadCard({
   startTracking,
   stopTracking,
   trackingLoadId,
-}: any) {
+}: {
+  load: Load;
+  selected: boolean;
+  setSelectedLoad: (load: Load) => void;
+  updateStatus: UpdateStatus;
+  uploadDoc: UploadDocument;
+  startTracking: StartTracking;
+  stopTracking: StopTracking;
+  trackingLoadId: string | null;
+}) {
   const isTracking = trackingLoadId === load.id;
   return (
     <div
@@ -413,7 +458,7 @@ function DriverLoadCard({
             <BigStatusButton
               label="Arrived"
               active={load.status === "Arrived at Pickup"}
-              onClick={(e: any) => {
+              onClick={(e) => {
                 e.stopPropagation();
                 updateStatus(load.id, "Arrived at Pickup");
               }}
@@ -422,7 +467,7 @@ function DriverLoadCard({
             <BigStatusButton
               label="In Transit"
               active={load.status === "In Transit"}
-              onClick={(e: any) => {
+              onClick={(e) => {
                 e.stopPropagation();
                 updateStatus(load.id, "In Transit");
               }}
@@ -431,7 +476,7 @@ function DriverLoadCard({
             <BigStatusButton
               label="Delivered"
               active={load.status === "Delivered"}
-              onClick={(e: any) => {
+              onClick={(e) => {
                 e.stopPropagation();
                 updateStatus(load.id, "Delivered");
               }}
@@ -517,7 +562,13 @@ function DriverLoadCard({
   );
 }
 
-function StickyDriverActions({ load, updateStatus }: any) {
+function StickyDriverActions({
+  load,
+  updateStatus,
+}: {
+  load: Load;
+  updateStatus: UpdateStatus;
+}) {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-800 bg-[#020617]/95 p-3 backdrop-blur-xl sm:hidden">
       <div className="mx-auto grid max-w-lg grid-cols-3 gap-2">
@@ -546,7 +597,15 @@ function StickyDriverActions({ load, updateStatus }: any) {
   );
 }
 
-function BigStatusButton({ label, active, onClick }: any) {
+function BigStatusButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+}) {
   return (
     <button
       onClick={onClick}
@@ -561,7 +620,15 @@ function BigStatusButton({ label, active, onClick }: any) {
   );
 }
 
-function InfoBox({ title, value, highlight }: any) {
+function InfoBox({
+  title,
+  value,
+  highlight = false,
+}: {
+  title: string;
+  value: string;
+  highlight?: boolean;
+}) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-[#0B1522] p-4">
       <p className="text-xs text-slate-500">{title}</p>

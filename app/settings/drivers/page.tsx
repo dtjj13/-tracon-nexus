@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Navbar from "../../components/Navbar";
+import RoleGate from "../../components/RoleGate";
 import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
 
@@ -24,6 +25,14 @@ type Truck = {
 };
 
 export default function DriversSettingsPage() {
+  return (
+    <RoleGate allowed={["owner", "admin", "manager"]}>
+      <DriversSettingsContent />
+    </RoleGate>
+  );
+}
+
+function DriversSettingsContent() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [editingDriverId, setEditingDriverId] = useState<string | null>(null);
@@ -36,29 +45,6 @@ const router = useRouter();
     pay_type: "CPM",
     pay_rate: "",
   });
-
-  useEffect(() => {
-    fetchDrivers();
-    fetchTrucks();
-
-    const channel = supabase
-      .channel("drivers-settings-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "drivers" },
-        () => fetchDrivers()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "trucks" },
-        () => fetchTrucks()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
 
   const fetchDrivers = async () => {
     const { data, error } = await supabase
@@ -82,6 +68,31 @@ const router = useRouter();
 
     setTrucks(data || []);
   };
+
+  /* eslint-disable react-hooks/set-state-in-effect -- Initial async settings hydration. */
+  useEffect(() => {
+    void fetchDrivers();
+    void fetchTrucks();
+
+    const channel = supabase
+      .channel("drivers-settings-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "drivers" },
+        () => void fetchDrivers()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "trucks" },
+        () => void fetchTrucks()
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const resetDriverForm = () => {
     setEditingDriverId(null);

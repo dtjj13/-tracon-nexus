@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "../../components/Navbar";
+import RoleGate from "../../components/RoleGate";
+import DriverDVIRWorkspace from "../../components/driver/DriverDVIRWorkspace";
 import { supabase } from "../../lib/supabase";
 
 type Question = {
@@ -27,6 +29,22 @@ type Answer = {
 };
 
 export default function DriverDVIRPage() {
+  return (
+    <RoleGate allowed={["owner", "admin", "driver"]}>
+      <DriverDVIRWorkspace />
+    </RoleGate>
+  );
+}
+
+export function LegacyDriverDVIRPage() {
+  return (
+    <RoleGate allowed={["owner", "admin", "driver"]}>
+      <DriverDVIRContent />
+    </RoleGate>
+  );
+}
+
+function DriverDVIRContent() {
   const router = useRouter();
 
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -37,11 +55,6 @@ export default function DriverDVIRPage() {
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [submitting, setSubmitting] = useState(false);
   const [selectedVehicleType, setSelectedVehicleType] = useState("all");
-
-  useEffect(() => {
-    fetchQuestions();
-    fetchTrucks();
-  }, []);
 
   const fetchQuestions = async () => {
     const { data, error } = await supabase
@@ -66,6 +79,13 @@ console.log("DVIR Error:", error);
     if (error) return alert(error.message);
     setTrucks(data || []);
   };
+
+  /* eslint-disable react-hooks/set-state-in-effect -- Initial async reference-data hydration. */
+  useEffect(() => {
+    void fetchQuestions();
+    void fetchTrucks();
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
  const filteredQuestions = questions.filter((q: Question) => {
   return q.vehicle_type === "all" || q.vehicle_type === selectedVehicleType;

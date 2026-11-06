@@ -3,9 +3,11 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
+import { CheckCircle2, Upload } from "lucide-react";
 
 import { supabase } from "@/app/lib/supabase";
 import type { ComplianceEntityType } from "@/app/lib/complianceDocuments";
@@ -37,6 +39,7 @@ const truckDocumentTypes = [
 ];
 
 export default function ComplianceDocumentForm() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [entityType, setEntityType] =
     useState<ComplianceEntityType>("driver");
 
@@ -49,10 +52,11 @@ export default function ComplianceDocumentForm() {
   const [issueDate, setIssueDate] = useState("");
   const [expirationDate, setExpirationDate] = useState("");
   const [notes, setNotes] = useState("");
-const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     async function loadOptions() {
@@ -117,10 +121,12 @@ const [documentFile, setDocumentFile] = useState<File | null>(null);
     setEntityId("");
     setDocumentType("");
     setError("");
+    setSuccess("");
   }
 
   async function saveDocument(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
+  setSuccess("");
 
   const selectedEntity = entityOptions.find(
     (item) => item.id === entityId
@@ -145,6 +151,18 @@ const [documentFile, setDocumentFile] = useState<File | null>(null);
 
   if (documentFile.size > 10 * 1024 * 1024) {
     setError("The document must be 10 MB or smaller.");
+    return;
+  }
+
+  const allowedExtensions = /\.(pdf|png|jpe?g|webp)$/i;
+
+  if (!allowedExtensions.test(documentFile.name)) {
+    setError("Upload a PDF, PNG, JPG, or WebP document.");
+    return;
+  }
+
+  if (issueDate && expirationDate && issueDate > expirationDate) {
+    setError("The expiration date must be after the issue date.");
     return;
   }
 
@@ -173,10 +191,6 @@ const [documentFile, setDocumentFile] = useState<File | null>(null);
     return;
   }
 
-  const { data: publicData } = supabase.storage
-    .from("documents")
-    .getPublicUrl(filePath);
-
   const { error: saveError } = await supabase
     .from("compliance_documents")
     .insert({
@@ -190,7 +204,7 @@ const [documentFile, setDocumentFile] = useState<File | null>(null);
       notes: notes.trim() || null,
       file_name: documentFile.name,
       file_path: filePath,
-      file_url: publicData.publicUrl,
+      file_url: null,
     });
 
   if (saveError) {
@@ -210,8 +224,14 @@ const [documentFile, setDocumentFile] = useState<File | null>(null);
   setExpirationDate("");
   setNotes("");
   setDocumentFile(null);
+  setSaving(false);
+  setSuccess(`${documentType} saved for ${selectedEntity.label}.`);
 
-  window.location.reload();
+  if (fileInputRef.current) {
+    fileInputRef.current.value = "";
+  }
+
+  window.dispatchEvent(new Event("tracon:compliance-updated"));
 }
 
   return (
@@ -226,8 +246,8 @@ const [documentFile, setDocumentFile] = useState<File | null>(null);
         </h2>
 
         <p className="mt-2 text-sm leading-6 text-slate-400">
-          Save document details and expiration dates so TRACON can
-          identify missing, expired, and upcoming compliance items.
+          Upload the record once. The dashboard will immediately place it in
+          the correct current, expiring, or overdue queue.
         </p>
       </div>
 
@@ -355,6 +375,7 @@ const [documentFile, setDocumentFile] = useState<File | null>(null);
   </span>
 
   <input
+    ref={fileInputRef}
     type="file"
     accept=".pdf,.png,.jpg,.jpeg,.webp"
     onChange={(event) =>
@@ -366,6 +387,13 @@ const [documentFile, setDocumentFile] = useState<File | null>(null);
   <p className="text-xs text-slate-500">
     PDF, PNG, JPG, or WebP. Maximum 10 MB.
   </p>
+
+  {documentFile && (
+    <p className="flex items-center gap-2 text-xs text-cyan-300">
+      <Upload className="h-3.5 w-3.5" />
+      {documentFile.name} · {(documentFile.size / 1024 / 1024).toFixed(1)} MB
+    </p>
+  )}
 </label>
         <label className="block space-y-2">
           <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -382,8 +410,15 @@ const [documentFile, setDocumentFile] = useState<File | null>(null);
         </label>
 
         {error && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+          <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
             {error}
+          </div>
+        )}
+
+        {success && (
+          <div role="status" className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-300">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            {success}
           </div>
         )}
 

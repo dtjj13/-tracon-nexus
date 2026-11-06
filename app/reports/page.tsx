@@ -1,4 +1,5 @@
 import Navbar from "../components/Navbar";
+import RoleGate from "../components/RoleGate";
 
 const reportCards = [
   {
@@ -29,6 +30,7 @@ const reportCards = [
 
 export default function ReportsPage() {
   return (
+    <RoleGate allowed={["owner", "admin", "manager"]}>
     <main className="min-h-screen bg-[#020617] px-4 py-3 text-white sm:px-6 sm:py-6">
       <div className="mx-auto max-w-[1600px] space-y-6">
         <Navbar />
@@ -120,6 +122,7 @@ export default function ReportsPage() {
         </section>
       </div>
     </main>
+    </RoleGate>
   );
 }
 

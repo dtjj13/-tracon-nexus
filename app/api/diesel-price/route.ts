@@ -181,7 +181,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       price_per_gallon: round(weightedPrice, 3),
       source:
-        "U.S. EIA weekly regional retail diesel prices",
+        regions.length === 1 && regions[0].region === "united_states"
+          ? "U.S. EIA weekly national retail diesel price"
+          : "U.S. EIA weekly regional retail diesel prices",
       as_of: regions
         .map((region) => region.as_of)
         .sort()

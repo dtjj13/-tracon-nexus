@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, BrainCircuit, Database, Route } from "lucide-react";
+import { ArrowLeft, BrainCircuit, Database, Plus } from "lucide-react";
 import Navbar from "../components/Navbar";
+import RoleGate from "../components/RoleGate";
+import IndependentLoadDecisionForm from "../components/dispatch/IndependentLoadDecisionForm";
 import LoadDecisionCard from "../components/dispatch/LoadDecisionCard";
 import RoundTripDecisionPanel from "../components/dispatch/RoundTripDecisionPanel";
 import {
@@ -18,6 +20,14 @@ import {
 } from "../lib/loadDecisionDraft";
 
 export default function LoadDecisionPage() {
+  return (
+    <RoleGate allowed={["owner", "admin", "dispatcher", "manager"]}>
+      <LoadDecisionContent />
+    </RoleGate>
+  );
+}
+
+function LoadDecisionContent() {
   const [draft, setDraft] = useState<LoadDecisionDraft | null>(null);
   const [ready, setReady] = useState(false);
 const [targetMarginPercent, setTargetMarginPercent] = useState(15);
@@ -28,6 +38,8 @@ const [loadMode, setLoadMode] = useState<LoadMode>("full");
       if (!stored) return;
 
       const parsed: unknown = JSON.parse(stored);
+      // Session storage is only available after the client mounts.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (isLoadDecisionDraft(parsed)) setDraft(parsed);
     } catch (error) {
       console.error("Unable to restore load decision draft:", error);
@@ -65,6 +77,21 @@ const bidGuidance = useMemo(
   [draft, decisionOptions]
 );
 
+  const analyzeIndependentLoad = (nextDraft: LoadDecisionDraft) => {
+    window.sessionStorage.setItem(
+      LOAD_DECISION_DRAFT_KEY,
+      JSON.stringify(nextDraft)
+    );
+    setDraft(nextDraft);
+  };
+
+  const startNewAnalysis = () => {
+    window.sessionStorage.removeItem(LOAD_DECISION_DRAFT_KEY);
+    setDraft(null);
+    setTargetMarginPercent(15);
+    setLoadMode("full");
+  };
+
   return (
     <main className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
       <div className="mx-auto max-w-[1600px] space-y-6">
@@ -89,13 +116,25 @@ const bidGuidance = useMemo(
                 </p>
               </div>
             </div>
-            <Link
-              href="/dispatch"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-[#0a1626] px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-400/40 hover:text-white"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to Dispatch
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              {draft && (
+                <button
+                  type="button"
+                  onClick={startNewAnalysis}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-3 text-sm font-semibold text-cyan-200 transition hover:border-cyan-300/60"
+                >
+                  <Plus className="h-4 w-4" />
+                  New analysis
+                </button>
+              )}
+              <Link
+                href="/dispatch"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-[#0a1626] px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-400/40 hover:text-white"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Dispatch
+              </Link>
+            </div>
           </div>
 
           {ready && draft ? (
@@ -248,26 +287,9 @@ const bidGuidance = useMemo(
               </section>
             </div>
           ) : ready ? (
-            <div className="p-5 sm:p-7">
-              <div className="flex min-h-[360px] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-700 bg-[#050e1a] px-6 text-center">
-                <div className="grid h-14 w-14 place-items-center rounded-2xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
-                  <Route className="h-7 w-7" />
-                </div>
-                <h2 className="mt-5 text-xl font-semibold">
-                  Start with a load in Dispatch
-                </h2>
-                <p className="mt-2 max-w-lg text-sm leading-6 text-slate-400">
-                  Enter the driver, revenue, and mileage, then use the floating
-                  Load Engine button to open the full decision workspace.
-                </p>
-                <Link
-                  href="/dispatch"
-                  className="mt-6 rounded-xl bg-gradient-to-r from-[#1E6BFF] to-[#00A3FF] px-5 py-3 text-sm font-semibold text-white"
-                >
-                  Open Dispatch
-                </Link>
-              </div>
-            </div>
+            <IndependentLoadDecisionForm
+              onAnalyze={analyzeIndependentLoad}
+            />
           ) : (
             <div className="p-5 sm:p-7">
               <div className="h-[360px] animate-pulse rounded-3xl border border-slate-800 bg-[#050e1a]" />

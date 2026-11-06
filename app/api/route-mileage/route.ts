@@ -2,14 +2,31 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const SEARCH_URL = "https://singlesearch.alk.com/NA/api/search";
-const ROUTE_URL =
-  "https://pcmiler.alk.com/apis/rest/v1.0/Service.svc/route/routeReports?dataVersion=Current";
+const GEOCODE_URL = "https://graphhopper.com/api/1/geocode";
+const ROUTE_URL = "https://graphhopper.com/api/1/route";
+const METERS_PER_MILE = 1609.344;
 
 type Coordinates = {
   lat: number;
   lon: number;
   label: string;
+};
+
+type GraphHopperPath = {
+  distance?: unknown;
+  time?: unknown;
+  bbox?: unknown;
+  points?: unknown;
+};
+
+type RouteTruck = {
+  heightFt: number | null;
+  widthFt: number | null;
+  lengthFt: number | null;
+  grossWeightLbs: number | null;
+  axleLoadLbs: number | null;
+  hazmat: boolean;
+  avoidTolls: boolean;
 };
 
 class MileageError extends Error {
@@ -23,11 +40,12 @@ class MileageError extends Error {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.TRIMBLE_MAPS_API_KEY?.trim();
+    const apiKey = process.env.GRAPHHOPPER_API_KEY?.trim();
+    const profile = process.env.GRAPHHOPPER_PROFILE?.trim() || "truck";
 
     if (!apiKey) {
       throw new MileageError(
-        "Truck mileage service is not configured yet.",
+        "GraphHopper routing is not configured yet. Add the API key or enter miles manually.",
         503
       );
     }
@@ -35,97 +53,102 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       pickup?: unknown;
       dropoff?: unknown;
+      truck?: unknown;
     };
 
     const pickup = readLocation(body.pickup, "pickup");
     const dropoff = readLocation(body.dropoff, "dropoff");
+    const truck = readTruck(body.truck);
 
     const [origin, destination] = await Promise.all([
       findLocation(pickup, "pickup", apiKey),
       findLocation(dropoff, "dropoff", apiKey),
     ]);
 
-    const routeResponse = await fetch(ROUTE_URL, {
+    const url = new URL(ROUTE_URL);
+    url.searchParams.set("key", apiKey);
+
+    const customModel = buildTruckCustomModel(truck);
+    const routeRequest: Record<string, unknown> = {
+      profile,
+      points: [
+        [origin.lon, origin.lat],
+        [destination.lon, destination.lat],
+      ],
+      points_encoded: false,
+      instructions: true,
+      locale: "en-US",
+      calc_points: true,
+    };
+
+    if (customModel) {
+      routeRequest["ch.disable"] = true;
+      routeRequest.custom_model = customModel;
+    }
+
+    const routeResponse = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: apiKey,
+        Accept: "application/json",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        ReportRoutes: [
-          {
-            RouteId: "tracon-loaded-mileage",
-            Stops: [
-              {
-                Address: null,
-                Coords: {
-                  Lat: String(origin.lat),
-                  Lon: String(origin.lon),
-                },
-                Region: 4,
-                Label: "Pickup",
-              },
-              {
-                Address: null,
-                Coords: {
-                  Lat: String(destination.lat),
-                  Lon: String(destination.lon),
-                },
-                Region: 4,
-                Label: "Dropoff",
-              },
-            ],
-            Options: {
-              VehicleType: 0,
-              RoutingType: 0,
-              HighwayOnly: false,
-              DistanceUnits: 0,
-              TollRoads: 3,
-            },
-           ReportTypes: [
-  {
-    __type:
-      "CalculateMilesReportType:http://pcmiler.alk.com/APIs/v1.0",
-  },
-  {
-    __type:
-      "StateReportType:http://pcmiler.alk.com/APIs/v1.0",
-    SortByRoute: false,
-  },
-],
-          },
-        ],
-      }),
+      body: JSON.stringify(routeRequest),
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),
     });
 
-    const reports = (await routeResponse.json()) as unknown;
+    const payload = (await routeResponse.json()) as unknown;
 
     if (!routeResponse.ok) {
-      console.error("Trimble mileage error:", reports);
+      console.error("GraphHopper routing error:", safeProviderMessage(payload));
       throw new MileageError(
-        "Truck mileage could not be calculated. Enter it manually.",
-        502
+        providerErrorMessage(payload) ||
+          "The route could not be calculated. Check the locations or enter miles manually.",
+        routeResponse.status === 429 ? 429 : 502
       );
     }
 
-    const miles = getMiles(reports);
-const stateMiles = getStateMiles(reports);
+    const envelope = isRecord(payload) ? payload : null;
+    const path = Array.isArray(envelope?.paths)
+      ? (envelope.paths[0] as GraphHopperPath | undefined)
+      : undefined;
+    const distanceMeters = toPositiveNumber(path?.distance);
+    const timeMilliseconds = toPositiveNumber(path?.time);
+    const routeCoordinates = readRouteCoordinates(path?.points);
 
-    if (miles === null || miles <= 0) {
+    if (distanceMeters === null || routeCoordinates.length < 2) {
       throw new MileageError(
-        "Truck mileage could not be calculated. Enter it manually.",
+        "The route could not be calculated. Check the locations or enter miles manually.",
         422
       );
     }
 
+    const miles = distanceMeters / METERS_PER_MILE;
+    const roundedMiles = Number(miles.toFixed(1));
+    const durationMinutes = timeMilliseconds
+      ? Math.round(timeMilliseconds / 60_000)
+      : null;
+
     return NextResponse.json({
-      miles: Number(miles.toFixed(1)),
-      source: "Trimble PC*Miler practical truck route",
+      miles: roundedMiles,
+      duration_minutes: durationMinutes,
+      source: `GraphHopper ${profile.replaceAll("_", " ")} route`,
+      routing_profile: profile,
+      truck_restrictions_applied: listAppliedTruckRestrictions(truck),
       pickup_match: origin.label,
       dropoff_match: destination.label,
-      state_miles: stateMiles,
+      route: {
+        type: "LineString",
+        coordinates: routeCoordinates,
+      },
+      bbox: readBoundingBox(path?.bbox),
+      // GraphHopper does not return state-by-state mileage. Passing the route
+      // total as US mileage lets the existing EIA integration use the weekly
+      // national diesel price instead of pretending it is a regional average.
+      state_miles: [{ state: "US", miles: roundedMiles }],
+      advisory: customModel
+        ? "Vehicle restrictions were applied. Drivers must still follow posted restrictions and dispatch instructions."
+        : "Generic truck route. Add the truck dimensions in Fleet Settings for vehicle-specific restrictions.",
     });
   } catch (error: unknown) {
     if (error instanceof MileageError) {
@@ -138,10 +161,151 @@ const stateMiles = getStateMiles(reports);
     console.error("Route mileage failed:", error);
 
     return NextResponse.json(
-      { error: "Truck mileage could not be calculated. Enter it manually." },
+      { error: "The route could not be calculated. Enter miles manually." },
       { status: 500 }
     );
   }
+}
+
+function readTruck(value: unknown): RouteTruck {
+  if (value === undefined || value === null) return emptyTruck();
+
+  if (!isRecord(value)) {
+    throw new MileageError("The selected truck routing profile is invalid.", 400);
+  }
+
+  return {
+    heightFt: readOptionalTruckNumber(value, "height_ft", 20, "height"),
+    widthFt: readOptionalTruckNumber(value, "width_ft", 15, "width"),
+    lengthFt: readOptionalTruckNumber(value, "length_ft", 150, "length"),
+    grossWeightLbs: readOptionalTruckNumber(
+      value,
+      "gross_weight_lbs",
+      200_000,
+      "gross weight"
+    ),
+    axleLoadLbs: readOptionalTruckNumber(
+      value,
+      "axle_load_lbs",
+      80_000,
+      "axle load"
+    ),
+    hazmat: readOptionalBoolean(value, "hazmat"),
+    avoidTolls: readOptionalBoolean(value, "avoid_tolls"),
+  };
+}
+
+function emptyTruck(): RouteTruck {
+  return {
+    heightFt: null,
+    widthFt: null,
+    lengthFt: null,
+    grossWeightLbs: null,
+    axleLoadLbs: null,
+    hazmat: false,
+    avoidTolls: false,
+  };
+}
+
+function readOptionalTruckNumber(
+  value: Record<string, unknown>,
+  key: string,
+  maximum: number,
+  label: string
+) {
+  const raw = value[key];
+  if (raw === undefined || raw === null || raw === "") return null;
+
+  const number = toNumber(raw);
+  if (number === null || number <= 0 || number > maximum) {
+    throw new MileageError(`The truck ${label} is outside the supported range.`, 400);
+  }
+
+  return number;
+}
+
+function readOptionalBoolean(value: Record<string, unknown>, key: string) {
+  const raw = value[key];
+  if (raw === undefined || raw === null) return false;
+  if (typeof raw !== "boolean") {
+    throw new MileageError("The selected truck routing profile is invalid.", 400);
+  }
+  return raw;
+}
+
+function buildTruckCustomModel(truck: RouteTruck) {
+  const priority: Array<{
+    if: string;
+    multiply_by: string;
+  }> = [];
+
+  addBlockingRule(priority, "max_height", feetToMeters(truck.heightFt));
+  addBlockingRule(priority, "max_width", feetToMeters(truck.widthFt));
+  addBlockingRule(priority, "max_length", feetToMeters(truck.lengthFt));
+  addBlockingRule(
+    priority,
+    "max_weight",
+    poundsToMetricTonnes(truck.grossWeightLbs)
+  );
+  addBlockingRule(
+    priority,
+    "max_axle_load",
+    poundsToMetricTonnes(truck.axleLoadLbs)
+  );
+
+  if (truck.hazmat) {
+    priority.push(
+      {
+        if: "hazmat == NO || hazmat_water == NO",
+        multiply_by: "0",
+      },
+      {
+        if: "hazmat_tunnel == D || hazmat_tunnel == E",
+        multiply_by: "0",
+      }
+    );
+  }
+
+  if (truck.avoidTolls) {
+    priority.push({
+      if: "toll == ALL || toll == HGV",
+      multiply_by: "0.1",
+    });
+  }
+
+  return priority.length ? { priority } : null;
+}
+
+function addBlockingRule(
+  rules: Array<{ if: string; multiply_by: string }>,
+  encodedValue: string,
+  limit: number | null
+) {
+  if (limit === null) return;
+  rules.push({
+    if: `${encodedValue} < ${limit}`,
+    multiply_by: "0",
+  });
+}
+
+function feetToMeters(value: number | null) {
+  return value === null ? null : Number((value * 0.3048).toFixed(4));
+}
+
+function poundsToMetricTonnes(value: number | null) {
+  return value === null ? null : Number((value / 2204.62262185).toFixed(4));
+}
+
+function listAppliedTruckRestrictions(truck: RouteTruck) {
+  const restrictions: string[] = [];
+  if (truck.heightFt !== null) restrictions.push("height");
+  if (truck.widthFt !== null) restrictions.push("width");
+  if (truck.lengthFt !== null) restrictions.push("length");
+  if (truck.grossWeightLbs !== null) restrictions.push("gross weight");
+  if (truck.axleLoadLbs !== null) restrictions.push("axle load");
+  if (truck.hazmat) restrictions.push("hazmat");
+  if (truck.avoidTolls) restrictions.push("avoid tolls");
+  return restrictions;
 }
 
 async function findLocation(
@@ -149,42 +313,39 @@ async function findLocation(
   field: "pickup" | "dropoff",
   apiKey: string
 ): Promise<Coordinates> {
-  const url = new URL(SEARCH_URL);
-  url.searchParams.set("query", location);
-  url.searchParams.set("maxResults", "1");
+  const url = new URL(GEOCODE_URL);
+  url.searchParams.set("q", location);
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("locale", "en");
+  url.searchParams.set("key", apiKey);
 
   const response = await fetch(url, {
-    headers: { Authorization: apiKey },
+    headers: { Accept: "application/json" },
     cache: "no-store",
     signal: AbortSignal.timeout(12_000),
   });
 
-  const results = (await response.json()) as unknown;
+  const payload = (await response.json()) as unknown;
 
   if (!response.ok) {
+    console.error("GraphHopper geocoding error:", safeProviderMessage(payload));
     throw new MileageError(
       "Address search is temporarily unavailable. Enter the miles manually.",
-      502
+      response.status === 429 ? 429 : 502
     );
   }
 
- const envelope = isRecord(results) ? results : null;
-
-const locations = Array.isArray(envelope?.Locations)
-  ? envelope.Locations
-  : Array.isArray(results)
-    ? results
-    : [];
-
-const first = locations[0];
-  const result = isRecord(first) ? first : null;
-  const coords = isRecord(result?.Coords) ? result.Coords : null;
-  const lat = toNumber(coords?.Lat);
-  const lon = toNumber(coords?.Lon);
+  const envelope = isRecord(payload) ? payload : null;
+  const hit = Array.isArray(envelope?.hits) && isRecord(envelope.hits[0])
+    ? envelope.hits[0]
+    : null;
+  const point = isRecord(hit?.point) ? hit.point : null;
+  const lat = toNumber(point?.lat);
+  const lon = toNumber(point?.lng);
 
   if (lat === null || lon === null) {
     throw new MileageError(
-      `We could not match the ${field}. Check the address or enter the miles manually.`,
+      `We could not match the ${field}. Add a city and state or enter the miles manually.`,
       422
     );
   }
@@ -192,10 +353,7 @@ const first = locations[0];
   return {
     lat,
     lon,
-    label:
-      typeof result?.ShortString === "string"
-        ? result.ShortString
-        : location,
+    label: formatLocationLabel(hit, location),
   };
 }
 
@@ -207,96 +365,83 @@ function readLocation(value: unknown, field: "pickup" | "dropoff") {
     );
   }
 
-  return value.trim();
+  const location = value.trim();
+
+  if (location.length > 250) {
+    throw new MileageError(`The ${field} location is too long.`, 400);
+  }
+
+  return location;
 }
 
-function getMiles(value: unknown): number | null {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const miles = getMiles(item);
-      if (miles !== null) return miles;
-    }
-  }
+function readRouteCoordinates(value: unknown): [number, number][] {
+  if (!isRecord(value) || !Array.isArray(value.coordinates)) return [];
 
-  if (isRecord(value)) {
-    const directMiles = toNumber(value.TMiles);
-    if (directMiles !== null) return directMiles;
+  return value.coordinates.flatMap((coordinate) => {
+    if (!Array.isArray(coordinate) || coordinate.length < 2) return [];
 
-    for (const item of Object.values(value)) {
-      const miles = getMiles(item);
-      if (miles !== null) return miles;
-    }
-  }
+    const lon = toNumber(coordinate[0]);
+    const lat = toNumber(coordinate[1]);
 
-  return null;
+    return lon === null || lat === null ? [] : [[lon, lat] as [number, number]];
+  });
 }
-type StateMileage = {
-  state: string;
-  miles: number;
-};
 
-function getStateMiles(value: unknown): StateMileage[] {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const stateMiles = getStateMiles(item);
+function readBoundingBox(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 4) return null;
 
-      if (stateMiles.length > 0) {
-        return stateMiles;
-      }
-    }
-  }
+  const values = value.map(toNumber);
 
-  if (isRecord(value)) {
-    if (Array.isArray(value.StateReportLines)) {
-      return value.StateReportLines.flatMap((line) => {
-        const record = isRecord(line) ? line : null;
+  if (values.some((item) => item === null)) return null;
 
-        const state =
-          typeof record?.StCntry === "string"
-            ? record.StCntry.trim().toUpperCase()
-            : "";
+  return values as [number, number, number, number];
+}
 
-        const miles = toNumber(record?.Total);
-
-        if (
-  !state ||
-  state === "US" ||
-  state === "TOTAL" ||
-  miles === null ||
-  miles <= 0
+function formatLocationLabel(
+  hit: Record<string, unknown> | null,
+  fallback: string
 ) {
-          return [];
-        }
+  if (!hit) return fallback;
 
-        return [
-          {
-            state,
-            miles: Number(miles.toFixed(1)),
-          },
-        ];
-      });
-    }
+  const parts = [hit.name, hit.city, hit.state, hit.country]
+    .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+    .map((value) => value.trim());
 
-    for (const item of Object.values(value)) {
-      const stateMiles = getStateMiles(item);
+  return Array.from(new Set(parts)).join(", ") || fallback;
+}
 
-      if (stateMiles.length > 0) {
-        return stateMiles;
-      }
-    }
+function providerErrorMessage(value: unknown) {
+  if (!isRecord(value) || typeof value.message !== "string") return "";
+
+  const message = value.message.trim();
+
+  if (/key|credential|auth/i.test(message)) {
+    return "The routing service credentials need attention.";
   }
 
-  return [];
+  if (/profile/i.test(message)) {
+    return "The selected truck-routing profile is not available on this GraphHopper plan.";
+  }
+
+  return "";
 }
+
+function safeProviderMessage(value: unknown) {
+  return providerErrorMessage(value) || "Provider request failed";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
 function toNumber(value: unknown): number | null {
-  if (typeof value !== "string" && typeof value !== "number") {
-    return null;
-  }
+  if (typeof value !== "string" && typeof value !== "number") return null;
 
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function toPositiveNumber(value: unknown): number | null {
+  const number = toNumber(value);
+  return number !== null && number > 0 ? number : null;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
@@ -11,15 +11,10 @@ type Load = {
   pickup: string;
   dropoff: string;
   status: string;
-  driver_name?: string;
-  driver_phone?: string;
   driver_lat?: number;
   driver_lng?: number;
   tracking_active?: boolean;
 tracking_started_at?: string;
-  bol_url?: string;
-  pod_url?: string;
-  rate_con_url?: string;
   created_at?: string;
   updated_at?: string;
   assigned_at?: string;
@@ -57,6 +52,7 @@ export default function TrackingPage() {
   const loadId = params.loadId as string;
 
   const [load, setLoad] = useState<Load | null>(null);
+  const [loadError, setLoadError] = useState("");
 const [currentTime, setCurrentTime] = useState(
   () => Date.now()
 );
@@ -70,8 +66,29 @@ useEffect(() => {
     window.clearInterval(timer);
   };
 }, []);
+
+  const fetchLoad = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("loads")
+      .select(
+        "id,tracon_id,broker_load_id,pickup,dropoff,status,driver_lat,driver_lng,tracking_active,tracking_started_at,created_at,updated_at,assigned_at,arrived_pickup_at,in_transit_at,delivered_at,pod_uploaded_at"
+      )
+      .eq("id", loadId)
+      .single();
+
+    if (error || !data) {
+      setLoadError("This tracking link is invalid or no longer available.");
+      return;
+    }
+
+    setLoadError("");
+    setLoad(data);
+  }, [loadId]);
+
   useEffect(() => {
-    fetchLoad();
+    // Load the public tracking snapshot when the route becomes available.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchLoad();
 
     const channel = supabase
       .channel(`tracking-${loadId}`)
@@ -83,24 +100,25 @@ useEffect(() => {
           table: "loads",
           filter: `id=eq.${loadId}`,
         },
-        () => fetchLoad()
+        () => void fetchLoad()
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loadId]);
+  }, [fetchLoad, loadId]);
 
-  const fetchLoad = async () => {
-    const { data, error } = await supabase
-      .from("loads")
-      .select("*")
-      .eq("id", loadId)
-      .single();
-
-    if (!error && data) setLoad(data);
-  };
+  if (loadError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#020617] p-6 text-center text-white">
+        <div className="max-w-md rounded-2xl border border-slate-800 bg-[#07101A] p-8">
+          <h1 className="text-xl font-semibold">Tracking unavailable</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-400">{loadError}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!load) {
     return (
@@ -224,19 +242,10 @@ const trackingLabel = isTrackingActive
                 </div>
 
                 <div className="mt-4 space-y-3 text-sm">
-                  <div>
-                    <p className="text-slate-500">Latitude</p>
-                    <p className="font-mono text-white">{load.driver_lat}</p>
-                  </div>
-
-                  <div>
-                    <p className="text-slate-500">Longitude</p>
-                    <p className="font-mono text-white">{load.driver_lng}</p>
-                  </div>
-
                   <a
                     href={`https://www.google.com/maps?q=${load.driver_lat},${load.driver_lng}`}
                     target="_blank"
+                    rel="noopener noreferrer"
                     className="block rounded-xl bg-gradient-to-r from-[#1E6BFF] to-[#00A3FF] px-4 py-2 text-center text-sm font-semibold text-white"
                   >
                     Open in Google Maps
@@ -246,6 +255,7 @@ const trackingLabel = isTrackingActive
 
               <div className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0B1522] lg:col-span-2">
                 <iframe
+                  title="Current shipment location"
                   src={`https://www.google.com/maps?q=${load.driver_lat},${load.driver_lng}&z=10&output=embed`}
                   className="h-[320px] w-full border-0"
                   loading="lazy"
@@ -320,8 +330,8 @@ const trackingLabel = isTrackingActive
           </div>
         </div>
 
-        {/* DRIVER + DOCS */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* DRIVER */}
+        <div>
           <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
             <h2 className="text-lg font-semibold text-white">
               Driver Information
@@ -330,12 +340,7 @@ const trackingLabel = isTrackingActive
             <div className="mt-4 space-y-3 text-sm">
               <div>
                 <p className="text-slate-500">Driver</p>
-                <p className="text-white">{load.driver_name || "Assigned"}</p>
-              </div>
-
-              <div>
-                <p className="text-slate-500">Driver Phone</p>
-                <p className="text-white">{load.driver_phone || "Not available"}</p>
+                <p className="text-white">Assigned carrier driver</p>
               </div>
 
               <div>
@@ -347,20 +352,9 @@ const trackingLabel = isTrackingActive
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-[#07101A] p-5">
-            <h2 className="text-lg font-semibold text-white">
-              Shipment Documents
-            </h2>
-
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <DocumentCard label="Rate Con" url={load.rate_con_url} />
-              <DocumentCard label="BOL" url={load.bol_url} />
-              <DocumentCard label="POD" url={load.pod_url} highlight={!!load.pod_url} />
-            </div>
-          </div>
         </div>
 
-        {load.status?.toLowerCase() === "delivered" && !load.pod_url && (
+        {load.status?.toLowerCase() === "delivered" && !load.pod_uploaded_at && (
           <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-5 shadow-[0_0_25px_rgba(239,68,68,0.15)]">
             <h2 className="text-lg font-semibold text-red-300">
               Waiting for Proof of Delivery
@@ -371,7 +365,7 @@ const trackingLabel = isTrackingActive
           </div>
         )}
 
-        {load.pod_url && (
+        {load.pod_uploaded_at && (
           <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 shadow-[0_0_25px_rgba(34,197,94,0.15)]">
             <h2 className="text-lg font-semibold text-green-300">
               Proof of Delivery Uploaded
@@ -398,42 +392,6 @@ function InfoCard({ title, value }: { title: string; value?: string }) {
       </p>
       <h2 className="mt-2 text-lg font-semibold text-white">{value || "-"}</h2>
     </div>
-  );
-}
-
-function DocumentCard({
-  label,
-  url,
-  highlight,
-}: {
-  label: string;
-  url?: string;
-  highlight?: boolean;
-}) {
-  if (!url) {
-    return (
-      <div className="rounded-xl border border-slate-800 bg-[#0B1522] p-4 text-center">
-        <p className="text-sm text-slate-500">{label}</p>
-        <p className="mt-2 text-xs text-slate-600">Not Uploaded</p>
-      </div>
-    );
-  }
-
-  return (
-    <a
-      href={url}
-      target="_blank"
-      className={`rounded-xl border p-4 text-center transition hover:scale-[1.02] ${
-        highlight
-          ? "border-green-500/40 bg-green-500/10"
-          : "border-[#16BFFF]/30 bg-[#16BFFF]/10"
-      }`}
-    >
-      <p className="text-sm font-semibold text-white">{label}</p>
-      <p className={`mt-2 text-xs ${highlight ? "text-green-300" : "text-[#16BFFF]"}`}>
-        View Document
-      </p>
-    </a>
   );
 }
 

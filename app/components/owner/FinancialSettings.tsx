@@ -166,6 +166,8 @@ export default function FinancialSettings() {
   }, []);
 
   useEffect(() => {
+    // Initial database hydration is intentionally performed after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadSettings();
   }, [loadSettings]);
 

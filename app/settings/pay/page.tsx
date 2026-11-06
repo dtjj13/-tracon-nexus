@@ -7,10 +7,14 @@ import {
   Banknote,
   CheckCircle2,
   Clock3,
+  Download,
+  Search,
   Settings2,
+  TriangleAlert,
   Users,
 } from "lucide-react";
 import Navbar from "@/app/components/Navbar";
+import RoleGate from "@/app/components/RoleGate";
 import { supabase } from "@/app/lib/supabase";
 
 type PayPeriod =
@@ -31,6 +35,7 @@ type DriverRecord = {
 
 type LoadRecord = {
   id: string;
+  assigned_driver_id?: string | null;
   driver_name?: string | null;
   broker_load_id?: string | null;
   pickup?: string | null;
@@ -87,12 +92,21 @@ const periodOptions: Array<{
 ];
 
 export default function PayrollPage() {
+  return (
+    <RoleGate allowed={["owner", "admin", "payroll"]}>
+      <PayrollContent />
+    </RoleGate>
+  );
+}
+
+function PayrollContent() {
   const [drivers, setDrivers] = useState<DriverRecord[]>([]);
   const [loads, setLoads] = useState<LoadRecord[]>([]);
   const [payments, setPayments] = useState<
     Record<string, PayrollPaymentRecord>
   >({});
   const [period, setPeriod] = useState<PayPeriod>("this-week");
+  const [search, setSearch] = useState("");
   const [savingLoadId, setSavingLoadId] = useState<string | null>(
     null
   );
@@ -102,45 +116,6 @@ export default function PayrollPage() {
   ] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    void fetchPayroll();
-
-    const channel = supabase
-      .channel("payroll-center-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "drivers",
-        },
-        () => void fetchPayroll()
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "loads",
-        },
-        () => void fetchPayroll()
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "payroll_payments",
-        },
-        () => void fetchPayroll()
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, []);
 
   const fetchPayroll = async () => {
     setLoading(true);
@@ -156,7 +131,7 @@ export default function PayrollPage() {
     supabase
       .from("loads")
       .select(
-        "id,driver_name,broker_load_id,pickup,dropoff,status,driver_pay,loaded_miles,delivered_at,created_at,updated_at"
+        "id,assigned_driver_id,driver_name,broker_load_id,pickup,dropoff,status,driver_pay,loaded_miles,delivered_at,created_at,updated_at"
       )
       .order("created_at", { ascending: false }),
 
@@ -208,11 +183,48 @@ export default function PayrollPage() {
     setLoading(false);
   };
 
+  /* eslint-disable react-hooks/set-state-in-effect -- Initial async payroll hydration. */
+  useEffect(() => {
+    void fetchPayroll();
+
+    const channel = supabase
+      .channel("payroll-center-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "drivers" },
+        () => void fetchPayroll()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "loads" },
+        () => void fetchPayroll()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payroll_payments" },
+        () => void fetchPayroll()
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const updatePaymentStatus = async (
     load: LoadRecord,
     status: PaymentStatus
   ) => {
     if (!paymentTrackingAvailable) return;
+
+    const confirmed = window.confirm(
+      status === "paid"
+        ? `Mark ${load.broker_load_id || "this load"} as paid?`
+        : `Reopen ${load.broker_load_id || "this load"} as unpaid?`
+    );
+
+    if (!confirmed) return;
 
     setSavingLoadId(load.id);
 
@@ -273,10 +285,8 @@ export default function PayrollPage() {
     const driverRows: DriverPayRow[] = drivers
       .map((driver) => {
         const matchingLoads = eligibleLoads.filter(
-  (load) =>
-    normalized(load.driver_name) ===
-    normalized(driverDisplayName(driver))
-);
+          (load) => loadMatchesDriver(load, driver)
+        );
 
         const deliveredLoads = matchingLoads.filter(
           (load) => isDelivered(load.status)
@@ -342,6 +352,12 @@ export default function PayrollPage() {
     return {
       driverRows,
       unmatchedLoads,
+      unlinkedLoadCount: eligibleLoads.filter(
+        (load) => !load.assigned_driver_id
+      ).length,
+      missingPaySetupCount: driverRows.filter(
+        ({ driver }) => !hasPaySetup(driver)
+      ).length,
       total: sumDriverPay(eligibleLoads),
       delivered: sumDriverPay(deliveredLoads),
       projected: sumDriverPay(activeLoads),
@@ -350,6 +366,16 @@ export default function PayrollPage() {
       loadCount: eligibleLoads.length,
     };
   }, [drivers, loads, payments, period]);
+
+  const normalizedSearch = normalized(search);
+  const visibleDriverRows = payroll.driverRows.filter((row) =>
+    rowMatchesSearch(row, normalizedSearch)
+  );
+  const visibleUnmatchedLoads = payroll.unmatchedLoads.filter((load) =>
+    loadMatchesSearch(load, normalizedSearch)
+  );
+  const issueCount =
+    payroll.unmatchedLoads.length + payroll.missingPaySetupCount;
 
   const paymentControls: PaymentControlProps = {
     payments,
@@ -367,7 +393,7 @@ export default function PayrollPage() {
           <div className="flex flex-col gap-6 border-b border-slate-800 p-6 sm:flex-row sm:items-center sm:justify-between lg:p-8">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-400">
-                Company payroll
+                Driver settlements
               </p>
 
               <h1 className="mt-3 text-3xl font-bold sm:text-4xl">
@@ -378,6 +404,11 @@ export default function PayrollPage() {
                 Review driver earnings, separate completed
                 pay from active projections, and track which
                 delivered loads have been paid.
+              </p>
+
+              <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+                This workspace prepares settlement totals. It does not
+                withhold taxes, move money, or file payroll forms.
               </p>
             </div>
 
@@ -423,6 +454,47 @@ export default function PayrollPage() {
               </div>
             </section>
 
+            <section className="rounded-2xl border border-slate-800 bg-[#050d18] p-4 sm:p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <label className="relative block w-full lg:max-w-xl">
+                  <span className="sr-only">
+                    Search settlements
+                  </span>
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search driver, load, pickup, or delivery"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950/50 py-3 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-500/60"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  disabled={payroll.loadCount === 0}
+                  onClick={() =>
+                    downloadSettlementCsv(
+                      payroll.driverRows,
+                      payroll.unmatchedLoads,
+                      payments,
+                      period
+                    )
+                  }
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-300 transition hover:bg-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Download settlement CSV
+                </button>
+              </div>
+
+              <p className="mt-3 text-xs text-slate-500">
+                Search narrows the cards below. Period totals and the
+                downloaded report include all records in{" "}
+                {periodLabel(period).toLowerCase()}.
+              </p>
+            </section>
+
             {!paymentTrackingAvailable && (
               <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
                 Payroll amounts are available, but paid/unpaid
@@ -437,7 +509,7 @@ export default function PayrollPage() {
               </div>
             )}
 
-            <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
+            <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
               <MetricCard
                 label="Saved driver pay"
                 value={money(payroll.total)}
@@ -479,28 +551,57 @@ export default function PayrollPage() {
                 icon={Settings2}
                 color="text-blue-400"
               />
+
+              <MetricCard
+                label="Review issues"
+                value={number(issueCount)}
+                helper={
+                  issueCount === 0
+                    ? "Ready for review"
+                    : `${payroll.unmatchedLoads.length} unmatched · ${payroll.missingPaySetupCount} pay setup`
+                }
+                icon={TriangleAlert}
+                color={
+                  issueCount === 0
+                    ? "text-green-400"
+                    : "text-amber-400"
+                }
+              />
             </section>
+
+            {payroll.unlinkedLoadCount > 0 && (
+              <div className="rounded-2xl border border-blue-500/25 bg-blue-500/10 p-4 text-sm leading-6 text-blue-200">
+                {payroll.unlinkedLoadCount} settlement load
+                {payroll.unlinkedLoadCount === 1 ? " is" : "s are"}{" "}
+                still matched by the legacy driver name. The page now
+                prefers permanent driver IDs whenever they are available.
+              </div>
+            )}
 
             {loading ? (
               <div className="rounded-2xl border border-slate-800 bg-[#050d18] p-10 text-center text-sm text-slate-400">
                 Loading payroll…
               </div>
-            ) : payroll.driverRows.length === 0 &&
-              payroll.unmatchedLoads.length === 0 ? (
+            ) : visibleDriverRows.length === 0 &&
+              visibleUnmatchedLoads.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-700 bg-[#050d18] p-10 text-center">
                 <Users className="mx-auto h-8 w-8 text-slate-500" />
 
                 <h2 className="mt-4 text-lg font-semibold">
-                  No payroll records in this period
+                  {search
+                    ? "No settlements match this search"
+                    : "No payroll records in this period"}
                 </h2>
 
                 <p className="mt-2 text-sm text-slate-400">
-                  Loads with saved driver pay will appear here.
+                  {search
+                    ? "Try a driver name, load number, pickup, or delivery."
+                    : "Loads with saved driver pay will appear here."}
                 </p>
               </div>
             ) : (
               <section className="grid gap-5 xl:grid-cols-2">
-                {payroll.driverRows.map((row) => (
+                {visibleDriverRows.map((row) => (
                   <DriverPayCard
                     key={row.driver.id}
                     row={row}
@@ -508,9 +609,9 @@ export default function PayrollPage() {
                   />
                 ))}
 
-                {payroll.unmatchedLoads.length > 0 && (
+                {visibleUnmatchedLoads.length > 0 && (
                   <UnmatchedPayCard
-                    loads={payroll.unmatchedLoads}
+                    loads={visibleUnmatchedLoads}
                     {...paymentControls}
                   />
                 )}
@@ -699,7 +800,8 @@ function LoadPayRow({
   load: LoadRecord;
 } & PaymentControlProps) {
   const delivered = isDelivered(load.status);
-  const paid = payments[load.id]?.status === "paid";
+  const payment = payments[load.id];
+  const paid = payment?.status === "paid";
   const saving = savingLoadId === load.id;
 
   return (
@@ -730,6 +832,12 @@ function LoadPayRow({
         {toNumber(load.loaded_miles) > 0 && (
           <p className="mt-1 text-xs text-slate-600">
             {number(toNumber(load.loaded_miles), 1)} miles
+          </p>
+        )}
+
+        {paid && payment?.paid_at && (
+          <p className="mt-1 text-xs text-green-500/80">
+            Marked paid {shortDateTime(payment.paid_at)}
           </p>
         )}
       </div>
@@ -833,6 +941,158 @@ function MiniTotal({
 
 function driverDisplayName(driver: DriverRecord) {
   return driver.name || "Unnamed driver";
+}
+
+function hasPaySetup(driver: DriverRecord) {
+  return Boolean(
+    String(driver.pay_type || "").trim() &&
+      String(driver.pay_rate ?? "").trim()
+  );
+}
+
+function loadMatchesDriver(
+  load: LoadRecord,
+  driver: DriverRecord
+) {
+  if (load.assigned_driver_id) {
+    return load.assigned_driver_id === driver.id;
+  }
+
+  return (
+    normalized(load.driver_name) ===
+    normalized(driverDisplayName(driver))
+  );
+}
+
+function rowMatchesSearch(
+  row: DriverPayRow,
+  search: string
+) {
+  if (!search) return true;
+
+  return (
+    normalized(driverDisplayName(row.driver)).includes(search) ||
+    row.loads.some((load) => loadMatchesSearch(load, search))
+  );
+}
+
+function loadMatchesSearch(load: LoadRecord, search: string) {
+  if (!search) return true;
+
+  return [
+    load.driver_name,
+    load.broker_load_id,
+    load.pickup,
+    load.dropoff,
+    load.status,
+  ].some((value) => normalized(value).includes(search));
+}
+
+function periodLabel(period: PayPeriod) {
+  return (
+    periodOptions.find((option) => option.value === period)?.label ||
+    "Selected period"
+  );
+}
+
+function downloadSettlementCsv(
+  driverRows: DriverPayRow[],
+  unmatchedLoads: LoadRecord[],
+  payments: Record<string, PayrollPaymentRecord>,
+  period: PayPeriod
+) {
+  const rows = driverRows.flatMap((row) =>
+    row.loads.map((load) =>
+      settlementCsvRow(
+        load,
+        driverDisplayName(row.driver),
+        row.driver.id,
+        payments[load.id]
+      )
+    )
+  );
+
+  rows.push(
+    ...unmatchedLoads.map((load) =>
+      settlementCsvRow(
+        load,
+        load.driver_name || "Unmatched driver",
+        "",
+        payments[load.id]
+      )
+    )
+  );
+
+  const headers = [
+    "Driver",
+    "Driver ID",
+    "Load",
+    "Status",
+    "Pickup",
+    "Delivery",
+    "Miles",
+    "Driver pay",
+    "Payment status",
+    "Paid at",
+    "Identity match",
+  ];
+  const csv = [headers, ...rows]
+    .map((row) => row.map(csvCell).join(","))
+    .join("\n");
+  const blob = new Blob([`\uFEFF${csv}`], {
+    type: "text/csv;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `tracon-settlements-${period}-${dateKey(new Date())}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function settlementCsvRow(
+  load: LoadRecord,
+  driverName: string,
+  driverId: string,
+  payment?: PayrollPaymentRecord
+) {
+  return [
+    driverName,
+    driverId,
+    load.broker_load_id || load.id,
+    load.status || "Active",
+    load.pickup || "",
+    load.dropoff || "",
+    toNumber(load.loaded_miles).toFixed(1),
+    toNumber(load.driver_pay).toFixed(2),
+    payment?.status || "unpaid",
+    payment?.paid_at || "",
+    load.assigned_driver_id ? "driver_id" : "legacy_name",
+  ];
+}
+
+function csvCell(value: unknown) {
+  let text = String(value ?? "");
+
+  if (/^[=+\-@]/.test(text)) {
+    text = `'${text}`;
+  }
+
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function shortDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "date unavailable";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function formatPayRate(driver: DriverRecord) {

@@ -29,9 +29,9 @@ export function getComplianceStatus(
 ): ComplianceStatus {
   if (!expirationDate) return "missing";
 
-  const expiration = new Date(`${expirationDate}T23:59:59`);
-  const today = new Date();
-  const warningDate = new Date();
+  const expiration = startOfLocalDay(expirationDate);
+  const today = startOfLocalDay(new Date());
+  const warningDate = new Date(today);
 
   warningDate.setDate(today.getDate() + warningDays);
 
@@ -44,4 +44,34 @@ export function getComplianceStatus(
   }
 
   return "current";
+}
+
+export function getDaysUntilExpiration(expirationDate: string | null) {
+  if (!expirationDate) return null;
+
+  const expiration = startOfLocalDay(expirationDate);
+  const today = startOfLocalDay(new Date());
+
+  return Math.round(
+    (expiration.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)
+  );
+}
+
+export function formatComplianceDate(value: string | null) {
+  if (!value) return "No expiration date";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(startOfLocalDay(value));
+}
+
+function startOfLocalDay(value: string | Date) {
+  if (value instanceof Date) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
 }

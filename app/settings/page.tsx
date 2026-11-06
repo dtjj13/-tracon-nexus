@@ -2,22 +2,29 @@
 
 import Link from "next/link";
 import Navbar from "../components/Navbar";
+import RoleGate from "../components/RoleGate";
 import {
+  BarChart3,
   Building2,
   ChevronRight,
   CircleDollarSign,
+  ShieldCheck,
   Truck,
   UserCog,
   Users,
   Wallet,
+  Wrench,
 } from "lucide-react";
 
 const cards = [
   { title: "Company", href: "/settings/company", icon: Building2 },
   { title: "Drivers", href: "/settings/drivers", icon: Users },
   { title: "Trucks", href: "/settings/trucks", icon: Truck },
+  { title: "Maintenance", href: "/settings/maintenance", icon: Wrench },
   { title: "Users & Roles", href: "/settings/users", icon: UserCog },
   { title: "Payroll", href: "/settings/pay", icon: Wallet },
+  { title: "Safety & Compliance", href: "/settings/safety", icon: ShieldCheck },
+  { title: "Reports & Intelligence", href: "/reports", icon: BarChart3 },
   {
     title: "Financial Settings",
     href: "/settings/financials",
@@ -27,8 +34,9 @@ const cards = [
 
 export default function SettingsPage() {
   return (
-    <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
-      <div className="space-y-6">
+    <RoleGate allowed={["owner", "admin"]}>
+      <div className="min-h-screen bg-[#020617] p-3 text-white sm:p-6">
+        <div className="space-y-6">
         <Navbar />
 
         <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-[#07101A] to-[#050A11] p-5">
@@ -63,7 +71,8 @@ export default function SettingsPage() {
             );
           })}
         </div>
+        </div>
       </div>
-    </div>
+    </RoleGate>
   );
 }

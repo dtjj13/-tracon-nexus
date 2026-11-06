@@ -440,8 +440,6 @@ export function evaluateRoundTripDecision(
   input: RoundTripDecisionInput
 ): RoundTripDecisionResult {
   const outbound = evaluateLoadDecision(input.outbound);
-  const returnLoadedMiles = positive(input.returnLoadedMiles);
-  const returnDeadheadMiles = positive(input.returnDeadheadMiles);
   const emptyReturnMiles = positive(input.emptyReturnMiles);
   const reloadProbability = clamp(input.reloadProbability, 0, 1);
   const waitDays = positive(input.waitDays);

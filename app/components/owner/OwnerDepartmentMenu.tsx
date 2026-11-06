@@ -87,8 +87,14 @@ href: "/settings/drivers",
         },
         {
          title: "Trucks",
-subtitle: "Truck and maintenance settings",
+subtitle: "Fleet records and configuration",
 href: "/settings/trucks",
+          icon: Truck,
+        },
+        {
+          title: "Maintenance",
+          subtitle: "Readiness and repair follow-up",
+          href: "/settings/maintenance",
           icon: Wrench,
           status:
             maintenanceDue === null

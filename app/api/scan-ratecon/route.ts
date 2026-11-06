@@ -207,7 +207,7 @@ const parsedData = JSON.parse(raw) as {
   bol_number: string;
 };
 
-const cleanNumber = (value: any) => {
+const cleanNumber = (value: unknown) => {
   if (!value) return "";
 
   return String(value)
@@ -227,11 +227,14 @@ const cleaned = {
 };
 
 return NextResponse.json(cleaned);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error(error);
 
     return NextResponse.json({
-      error: error.message || "Failed to scan rate confirmation",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to scan rate confirmation",
     });
   }
 }

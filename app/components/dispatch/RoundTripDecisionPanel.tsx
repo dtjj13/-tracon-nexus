@@ -69,6 +69,8 @@ export default function RoundTripDecisionPanel({
   }, []);
 
   useEffect(() => {
+    // Reset the comparison defaults when the outbound trip changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setReturnLoadedMiles(Math.max(0, outbound.loadedMiles));
     setEmptyReturnMiles(Math.max(0, outbound.loadedMiles));
   }, [outbound.loadedMiles]);

@@ -17,10 +17,6 @@ export default function CompanySettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
   async function loadSettings() {
     const { data } = await supabase
       .from("company_financial_settings")
@@ -32,6 +28,12 @@ export default function CompanySettingsPage() {
       setSettings(data);
     }
   }
+
+  useEffect(() => {
+    // Initial settings hydration is intentionally performed after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadSettings();
+  }, []);
 
   async function save() {
     if (!settings) return;

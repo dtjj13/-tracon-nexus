@@ -24,11 +24,27 @@ import {
   LOAD_DECISION_DRAFT_KEY,
   type LoadDecisionDraft,
 } from "../lib/loadDecisionDraft";
-import { BrainCircuit } from "lucide-react";
+import {
+  BrainCircuit,
+  ChevronDown,
+  ChevronUp,
+  LayoutGrid,
+  Rows3,
+} from "lucide-react";
 import ProfitDetailsDrawer from "../components/dispatch/ProfitDetailsDrawer";
 import RateConReviewModal, {
   type RateConReviewData,
 } from "../components/dispatch/RateConReviewModal";
+import DispatchLoadComparison from "../components/dispatch/DispatchLoadComparison";
+import {
+  openLoadDocument,
+  privateDocumentReference,
+} from "../lib/loadDocuments";
+import {
+  describeTruckRoutingProfile,
+  toRouteTruckInput,
+  type TruckRoutingFields,
+} from "../lib/truckRouting";
 type Driver = {
   id: string;
   name: string;
@@ -41,7 +57,7 @@ type Driver = {
    truck_id?: string | null
 truck_number?: string | null
 };
-type Truck = {
+type Truck = TruckRoutingFields & {
   id: string;
   truck_number: string;
   active: boolean;
@@ -101,11 +117,6 @@ fuel_price_as_of?: string | null;
 insurance_rate_per_mile?: number;
 factoring_percent_used?: number;
 };
-type FuelSettings = {
-  default_diesel_price?: number | null;
-  default_mpg?: number | null;
-  default_deadhead_percent?: number | null;
-};
 type RouteFuelEstimate = {
   price_per_gallon: number;
   source: string;
@@ -118,6 +129,12 @@ type RouteFuelEstimate = {
     price_per_gallon: number;
     as_of: string;
   }>;
+};
+type DispatchRouteEstimate = {
+  miles: number;
+  durationMinutes: number | null;
+  source: string;
+  truckProfile: string;
 };
 const statuses = [
   "Pending",
@@ -142,18 +159,44 @@ export default function DispatchPage() {
   const [estimatingMileage, setEstimatingMileage] = useState(false);
 const [routeFuelEstimate, setRouteFuelEstimate] =
   useState<RouteFuelEstimate | null>(null);
+const [dispatchRouteEstimate, setDispatchRouteEstimate] =
+  useState<DispatchRouteEstimate | null>(null);
 const [mileageSource, setMileageSource] = useState<
   "estimated" | "manual" | "rate-con" | null
 >(null);
   const [rateConReview, setRateConReview] =
   useState<RateConReviewData | null>(null);
-const [fuelSettings, setFuelSettings] = useState<FuelSettings | null>(null);
 const [financialSettings, setFinancialSettings] =
   useState<CompanyFinancialSettings | null>(null);
 const [editingLoadId, setEditingLoadId] = useState<string | null>(null);
 const [currentTime, setCurrentTime] = useState(
   () => Date.now()
 );
+const [comparisonLoadIds, setComparisonLoadIds] = useState<string[]>([]);
+const [compactCards, setCompactCards] = useState(true);
+
+const comparisonLoads = useMemo(
+  () =>
+    comparisonLoadIds
+      .map((loadId) => loads.find((load) => load.id === loadId))
+      .filter((load): load is Load => Boolean(load)),
+  [comparisonLoadIds, loads]
+);
+
+const toggleComparisonLoad = (loadId: string) => {
+  setComparisonLoadIds((current) => {
+    if (current.includes(loadId)) {
+      return current.filter((id) => id !== loadId);
+    }
+
+    if (current.length >= 3) {
+      alert("Compare up to three loads at a time.");
+      return current;
+    }
+
+    return [...current, loadId];
+  });
+};
 
 useEffect(() => {
   const timer = window.setInterval(() => {
@@ -331,68 +374,6 @@ other_expenses: "",
     
   });
 
-  useEffect(() => {
-    const checkRole = async () => {
-      const allowed = await hasRole(["owner", "admin", "dispatcher", "manager"]);
-      if (!allowed) router.push("/driver");
-    };
-const getRole = async () => {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user?.email) return;
-
-  const { data } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("email", user.email)
-    .single();
-
-  setRole(data?.role || "");
-};
-
-getRole();
-    checkRole();
-    fetchLoads();
-    fetchDrivers();
-    fetchTrucks();
-fetchFuelSettings();
-fetchFinancialSettings();
-async function fetchFinancialSettings() {
-  const { data, error } = await supabase
-    .from("company_financial_settings")
-    .select(FINANCIAL_SETTINGS_COLUMNS)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error(
-      "Unable to load financial settings:",
-      error
-    );
-    return;
-  }
-
-  setFinancialSettings(
-    data as CompanyFinancialSettings | null
-  );
-}
-    const channel = supabase
-      .channel("dispatch-loads-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "loads" },
-        () => fetchLoads()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [router]);
-
   const fetchLoads = async () => {
     const { data, error } = await supabase
       .from("loads")
@@ -425,31 +406,63 @@ const fetchTrucks = async () => {
   if (error) return alert(error.message);
   setTrucks(data || []);
 };
-const fetchFuelSettings = async () => {
+const fetchFinancialSettings = async () => {
   const { data, error } = await supabase
-  .from("company_settings")
-  .select("default_diesel_price, default_mpg, default_deadhead_percent")
-  .eq("id", 1)
-  .single();
+    .from("company_financial_settings")
+    .select(FINANCIAL_SETTINGS_COLUMNS)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
 
-  if (!error && data) {
-    setFuelSettings(data);
+  if (error) {
+    console.error("Unable to load financial settings:", error);
+    return;
   }
+
+  setFinancialSettings(data as CompanyFinancialSettings | null);
 };
-  const extractRateConText = async (file: File) => {
-    if (file.type === "text/plain") {
-      return await file.text();
-    }
 
-   if (
-  file.type === "application/pdf" ||
-  file.name.toLowerCase().endsWith(".pdf")
-) {
-  return "PDF uploaded";
-}
+  /* eslint-disable react-hooks/set-state-in-effect -- Initial async page hydration. */
+  useEffect(() => {
+    const checkRole = async () => {
+      const allowed = await hasRole(["owner", "admin", "dispatcher", "manager"]);
+      if (!allowed) router.push("/driver");
+    };
 
-    return await file.text();
-  };
+    const getRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) return;
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("email", user.email)
+        .single();
+
+      setRole(data?.role || "");
+    };
+
+    void getRole();
+    void checkRole();
+    void fetchLoads();
+    void fetchDrivers();
+    void fetchTrucks();
+    void fetchFinancialSettings();
+
+    const channel = supabase
+      .channel("dispatch-loads-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "loads" },
+        () => void fetchLoads()
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [router]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const scanRateCon = async () => {
   if (!rateConFile) {
@@ -515,6 +528,14 @@ const estimateLoadedMiles = async (
   try {
     setEstimatingMileage(true);
     setRouteFuelEstimate(null);
+    setDispatchRouteEstimate(null);
+
+    const routeDriver = drivers.find((driver) => driver.id === form.driver_id);
+    const routeTruck = trucks.find(
+      (truck) =>
+        truck.id === form.truck_id ||
+        (routeDriver?.truck_id && truck.id === routeDriver.truck_id)
+    );
 
     const response = await fetch(
       "/api/route-mileage",
@@ -526,6 +547,7 @@ const estimateLoadedMiles = async (
         body: JSON.stringify({
           pickup,
           dropoff,
+          truck: toRouteTruckInput(routeTruck),
         }),
       }
     );
@@ -551,6 +573,16 @@ const estimateLoadedMiles = async (
     }
 
     const loadedMiles = String(miles);
+
+    setDispatchRouteEstimate({
+      miles,
+      durationMinutes:
+        typeof data.duration_minutes === "number"
+          ? data.duration_minutes
+          : null,
+      source: String(data.source || "Estimated truck route"),
+      truckProfile: describeTruckRoutingProfile(routeTruck),
+    });
 
 if (!keepExistingMiles) {
   setForm((previousForm) => ({
@@ -740,6 +772,43 @@ const approveRateConReview = async (
     () => (loadDecisionInput ? evaluateLoadDecision(loadDecisionInput) : null),
     [loadDecisionInput]
   );
+
+  const dispatchFuelPreview = useMemo(() => {
+    if (!financialSettings) return null;
+
+    const loadedMiles = Number(form.loaded_miles || 0);
+    const deadheadMiles = Number(form.deadhead_miles || 0);
+    const selectedDriver = drivers.find(
+      (driver) => driver.id === form.driver_id
+    );
+    const selectedTruck = trucks.find(
+      (truck) =>
+        truck.id === form.truck_id || truck.id === selectedDriver?.truck_id
+    );
+    const mpg = Number(
+      selectedTruck?.mpg ||
+        selectedDriver?.truck_mpg ||
+        financialSettings.default_mpg ||
+        0
+    );
+    const fuelPrice = Number(
+      routeFuelEstimate?.price_per_gallon ||
+        financialSettings.default_fuel_price ||
+        0
+    );
+    const totalMiles =
+      (Number.isFinite(loadedMiles) ? Math.max(0, loadedMiles) : 0) +
+      (Number.isFinite(deadheadMiles) ? Math.max(0, deadheadMiles) : 0);
+
+    if (totalMiles <= 0 || mpg <= 0 || fuelPrice <= 0) return null;
+
+    return {
+      cost: (totalMiles / mpg) * fuelPrice,
+      mpg,
+      fuelPrice,
+      source: routeFuelEstimate?.source || "Company default diesel price",
+    };
+  }, [drivers, financialSettings, form, routeFuelEstimate, trucks]);
 
   const openLoadDecisionEngine = () => {
     if (loadDecisionInput) {
@@ -1113,7 +1182,8 @@ settings: financialSettings,
   ) => {
     if (!file) return;
 
-    const fileName = `${type.toLowerCase()}-${Date.now()}-${file.name}`;
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const fileName = `loads/${loadId}/${type.toLowerCase()}-${Date.now()}-${safeName}`;
 
     const { error: uploadError } = await supabase.storage
       .from("documents")
@@ -1121,14 +1191,12 @@ settings: financialSettings,
 
     if (uploadError) return alert(uploadError.message);
 
-    const { data } = supabase.storage.from("documents").getPublicUrl(fileName);
-
     const updateData =
       type === "RATECON"
-        ? { rate_con_url: data.publicUrl }
+        ? { rate_con_url: privateDocumentReference(fileName) }
         : type === "BOL"
-        ? { bol_url: data.publicUrl }
-        : { pod_url: data.publicUrl };
+        ? { bol_url: privateDocumentReference(fileName) }
+        : { pod_url: privateDocumentReference(fileName) };
 
     const { error } = await supabase.from("loads").update(updateData).eq("id", loadId);
 
@@ -1377,13 +1445,24 @@ const updateBol = async (loadId: string, bol: string) => {
   </div>
 
   {mileageSource && form.loaded_miles && (
-    <p className="px-1 text-[10px] font-medium uppercase tracking-wider text-cyan-400">
-      {mileageSource === "estimated"
-        ? "Estimated truck route"
-        : mileageSource === "rate-con"
-          ? "From rate confirmation"
-          : "Manual mileage"}
-    </p>
+    <div className="px-1 text-[10px] font-medium uppercase tracking-wider text-cyan-400">
+      <p>
+        {mileageSource === "estimated"
+          ? "Estimated truck route"
+          : mileageSource === "rate-con"
+            ? "From rate confirmation"
+            : "Manual mileage"}
+      </p>
+      {dispatchRouteEstimate && (
+        <p className="mt-1 normal-case tracking-normal text-slate-500">
+          {dispatchRouteEstimate.source}
+          {dispatchRouteEstimate.durationMinutes
+            ? ` · ${formatRouteDuration(dispatchRouteEstimate.durationMinutes)}`
+            : ""}
+          {` · ${dispatchRouteEstimate.truckProfile}`}
+        </p>
+      )}
+    </div>
   )}
 </div>
 <div className="space-y-1">
@@ -1399,10 +1478,18 @@ const updateBol = async (loadId: string, bol: string) => {
   />
 
   {!form.fuel_cost.trim() && routeFuelEstimate && (
-    <p className="px-1 text-[10px] font-medium uppercase tracking-wider text-cyan-400">
-      Route average diesel: $
-      {routeFuelEstimate.price_per_gallon.toFixed(3)}/gal
-    </p>
+    <div className="px-1 text-[10px] font-medium uppercase tracking-wider text-cyan-400">
+      <p>
+        Estimated fuel: {dispatchFuelPreview
+          ? formatFuelCurrency(dispatchFuelPreview.cost)
+          : "Waiting for miles and MPG"}
+      </p>
+      <p className="mt-1 normal-case tracking-normal text-slate-500">
+        ${routeFuelEstimate.price_per_gallon.toFixed(3)}/gal
+        {dispatchFuelPreview ? ` · ${dispatchFuelPreview.mpg} mpg` : ""}
+        {routeFuelEstimate.as_of ? ` · updated ${routeFuelEstimate.as_of}` : ""}
+      </p>
+    </div>
   )}
 </div>
 
@@ -1423,6 +1510,43 @@ const updateBol = async (loadId: string, bol: string) => {
           </div>
 
         </div>
+
+        <section className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-[#07101A] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+              Dispatch card layout
+            </p>
+            <p className="mt-1 text-sm text-slate-400">
+              Compact cards show the essentials. Expand any card when you need its controls.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-800 bg-slate-950/40 p-1">
+            <button
+              type="button"
+              onClick={() => setCompactCards(true)}
+              className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition ${
+                compactCards
+                  ? "bg-cyan-500/15 text-cyan-300"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Rows3 className="h-4 w-4" />
+              Compact
+            </button>
+            <button
+              type="button"
+              onClick={() => setCompactCards(false)}
+              className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition ${
+                !compactCards
+                  ? "bg-cyan-500/15 text-cyan-300"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              Full
+            </button>
+          </div>
+        </section>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
           {statuses.map((status) => {
@@ -1455,13 +1579,16 @@ const updateBol = async (loadId: string, bol: string) => {
                 <div className="space-y-4">
                   {columnLoads.map((load) => (
                     <LoadCard
-                      key={load.id}
+                      key={`${load.id}-${compactCards ? "compact" : "full"}`}
                       load={load}
+                      compactMode={compactCards}
                       currentTime={currentTime}
                       role={role}
                       drivers={drivers}
                       editingLoadId={editingLoadId}
                       openProfitDetails={setProfitDetailsLoad}
+                      isComparisonSelected={comparisonLoadIds.includes(load.id)}
+                      toggleComparisonLoad={toggleComparisonLoad}
 editForm={editForm}
 setEditForm={setEditForm}
 setEditingLoadId={setEditingLoadId}
@@ -1521,43 +1648,20 @@ saveEditedLoad={saveEditedLoad}
         load={profitDetailsLoad}
         onClose={() => setProfitDetailsLoad(null)}
       />
+      <DispatchLoadComparison
+        loads={comparisonLoads}
+        onRemove={toggleComparisonLoad}
+        onClear={() => setComparisonLoadIds([])}
+      />
     </div>
   );
 }
 
-function calculateEstimatedFuelCost({
-  loadedMiles,
-  deadheadMiles,
-  truckMpg,
-  defaultMpg,
-  dieselPrice,
-  defaultDeadheadPercent,
-}: {
-  loadedMiles: number;
-  deadheadMiles: number;
-  truckMpg?: number | null;
-  defaultMpg?: number | null;
-  dieselPrice?: number | null;
-  defaultDeadheadPercent?: number | null;
-}) {
-  const mpg = Number(truckMpg || defaultMpg || 0);
-  const fuelPrice = Number(dieselPrice || 0);
-
-  if (!loadedMiles || !mpg || !fuelPrice) return 0;
-
-  const estimatedDeadhead =
-    deadheadMiles > 0
-      ? deadheadMiles
-      : defaultDeadheadPercent
-      ? loadedMiles * (Number(defaultDeadheadPercent) / 100)
-      : 0;
-
-  const totalMiles = loadedMiles + estimatedDeadhead;
-
-  return (totalMiles / mpg) * fuelPrice;
-}
 function LoadCard({
   openProfitDetails,
+  isComparisonSelected,
+  toggleComparisonLoad,
+  compactMode,
   load,
   currentTime,
   drivers,
@@ -1611,6 +1715,7 @@ completeLoad: (loadId: string) => void;
 cancelLoad: (loadId: string) => void;
 saveEditedLoad: (loadId: string) => Promise<void>;
   load: Load;
+  compactMode: boolean;
   currentTime: number;
   drivers: Driver[];
   role: string;
@@ -1621,7 +1726,10 @@ saveEditedLoad: (loadId: string) => Promise<void>;
   deleteLoad: (loadId: string) => void;
   updateBol: (loadId: string, bol: string) => void;
   openProfitDetails: (load: Load) => void;
+  isComparisonSelected: boolean;
+  toggleComparisonLoad: (loadId: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const hasLocation =
   load.driver_lat != null &&
   load.driver_lng != null;
@@ -1651,12 +1759,120 @@ const trackingLabel = isTrackingLive
     : hasLocation
       ? "Tracking Stopped"
       : "Awaiting Location";
+
+  if (compactMode && !expanded && editingLoadId !== load.id) {
+    return (
+      <div
+        draggable
+        onDragStart={() => setDraggingId(load.id)}
+        onDragEnd={() => setDraggingId(null)}
+        className={`cursor-grab rounded-2xl border p-3 transition-all duration-200 active:cursor-grabbing hover:-translate-y-0.5 ${
+          isComparisonSelected ? "ring-2 ring-violet-400/70" : ""
+        } ${compactCardTone(load.status)}`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="truncate text-sm font-bold text-[#00A3FF]">
+                {load.broker_load_id || load.tracon_id}
+              </p>
+              <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase ${statusPillTone(load.status)}`}>
+                {load.status}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-xs text-slate-400">
+              {shortLocation(load.pickup)} → {shortLocation(load.dropoff)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold text-cyan-300 hover:text-cyan-200"
+          >
+            Details
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+          <div className="rounded-lg bg-[#07101A] p-2">
+            <p className="text-slate-500">Driver</p>
+            <p className="mt-1 truncate font-semibold text-white">
+              {load.driver_name || "Unassigned"}
+            </p>
+          </div>
+          <div className="rounded-lg bg-[#07101A] p-2">
+            <p className="text-slate-500">Truck / miles</p>
+            <p className="mt-1 truncate font-semibold text-white">
+              {load.truck_number || "No truck"} · {Number(load.loaded_miles || 0).toLocaleString()} mi
+            </p>
+          </div>
+          <MoneyBox
+            label="Revenue"
+            value={load.rate || 0}
+            color="text-green-400"
+          />
+          {(role === "owner" || role === "admin") && (
+            <MoneyBox
+              label="Net Profit"
+              value={load.net_profit ?? load.profit ?? 0}
+              color={
+                Number(load.net_profit ?? load.profit ?? 0) >= 0
+                  ? "text-[#00A3FF]"
+                  : "text-red-400"
+              }
+            />
+          )}
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-800/70 pt-3">
+          <span
+            className={`rounded-full border px-2 py-1 text-[9px] font-semibold ${
+              isTrackingLive
+                ? "border-green-500/30 bg-green-500/10 text-green-300"
+                : hasSignalLoss
+                  ? "border-red-500/30 bg-red-500/10 text-red-300"
+                  : "border-slate-700 bg-slate-800/40 text-slate-400"
+            }`}
+          >
+            {trackingLabel}
+          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => toggleComparisonLoad(load.id)}
+              className={`text-[10px] font-semibold transition ${
+                isComparisonSelected
+                  ? "text-violet-300"
+                  : "text-slate-400 hover:text-violet-300"
+              }`}
+            >
+              {isComparisonSelected ? "Selected" : "Compare"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setExpanded(true);
+                startEditLoad(load);
+              }}
+              className="text-[10px] font-semibold text-cyan-400 hover:text-cyan-300"
+            >
+              Edit
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       draggable
       onDragStart={() => setDraggingId(load.id)}
       onDragEnd={() => setDraggingId(null)}
      className={`cursor-grab rounded-2xl border p-4 transition-all duration-200 ease-out active:cursor-grabbing hover:-translate-y-1 hover:scale-[1.01] active:scale-[0.98] ${
+  isComparisonSelected ? "ring-2 ring-violet-400/70" : ""
+} ${
   clean(load.status) === "pending"
     ? "border-yellow-500/30 bg-[#050A11] shadow-[0_0_18px_rgba(234,179,8,0.08)] hover:border-yellow-400"
     : clean(load.status) === "assigned"
@@ -1670,25 +1886,51 @@ const trackingLabel = isTrackingLive
     : "border-slate-800 bg-[#050A11] hover:border-[#00A3FF]"
 }`}
     >
-     <div className="flex items-start justify-between gap-3">
-  <div>
-    <p className="text-base font-bold text-[#00A3FF]">
+     <div className="flex flex-col gap-3">
+  <div className="min-w-0">
+    <p className="truncate text-base font-bold text-[#00A3FF]">
       {load.broker_load_id || load.tracon_id}
     </p>
 
-    <p className="text-xs text-slate-500">
+    <p className="truncate text-xs text-slate-500">
       {load.broker_name || load.tracon_id}
     </p>
   </div>
 {load.status === "Delivered" && (
   <button
     onClick={() => completeLoad(load.id)}
-    className="rounded-xl bg-green-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-green-500"
+    className="self-end rounded-xl bg-green-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-green-500"
   >
     Complete Load
   </button>
 )}
-  <div className="flex items-center gap-3">
+  <div className="flex max-w-full flex-wrap items-center justify-end gap-x-3 gap-y-2 border-t border-slate-800/70 pt-2">
+    {compactMode && (
+      <button
+        type="button"
+        onClick={() => {
+          setEditingLoadId(null);
+          setExpanded(false);
+        }}
+        className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400 transition hover:text-white"
+      >
+        <ChevronUp className="h-3.5 w-3.5" />
+        Collapse
+      </button>
+    )}
+
+    <button
+      type="button"
+      onClick={() => toggleComparisonLoad(load.id)}
+      className={`text-xs font-semibold transition ${
+        isComparisonSelected
+          ? "text-violet-300"
+          : "text-slate-400 hover:text-violet-300"
+      }`}
+    >
+      {isComparisonSelected ? "Selected" : "Compare"}
+    </button>
+
     <button
       onClick={() => startEditLoad(load)}
       className="text-xs text-cyan-400 hover:text-cyan-300"
@@ -2041,6 +2283,22 @@ function formatTime(value: string) {
     minute: "2-digit",
   });
 }
+function formatRouteDuration(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = Math.round(totalMinutes % 60);
+
+  if (hours === 0) return `${minutes} min`;
+  if (minutes === 0) return `${hours} hr`;
+  return `${hours} hr ${minutes} min`;
+}
+function formatFuelCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 function MoneyBox({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="rounded-lg bg-[#0B1522] p-2">
@@ -2066,9 +2324,21 @@ function Input({ placeholder, value, onChange }: { placeholder: string; value: s
 function DocButton({ label, url, onUpload }: { label: string; url?: string; onUpload: (file: File | null) => void }) {
   if (url) {
     return (
-      <a href={url} target="_blank" className="rounded-lg bg-green-900/30 p-2 text-center text-green-400 hover:bg-green-900/50">
+      <button
+        type="button"
+        onClick={() => {
+          void openLoadDocument(url).catch((error: unknown) => {
+            alert(
+              error instanceof Error
+                ? error.message
+                : "This document could not be opened."
+            );
+          });
+        }}
+        className="rounded-lg bg-green-900/30 p-2 text-center text-green-400 hover:bg-green-900/50"
+      >
         View {label}
-      </a>
+      </button>
     );
   }
 
@@ -2103,6 +2373,48 @@ function statusColor(status: string) {
   if (status === "In Transit") return "text-blue-400";
   if (status === "Delivered") return "text-green-400";
   return "text-slate-300";
+}
+
+function compactCardTone(status: string) {
+  const value = clean(status);
+
+  if (value === "pending") {
+    return "border-yellow-500/30 bg-[#050A11] hover:border-yellow-400";
+  }
+  if (value === "assigned") {
+    return "border-blue-500/30 bg-[#050A11] hover:border-blue-400";
+  }
+  if (value === "arrived at pickup") {
+    return "border-purple-500/30 bg-[#050A11] hover:border-purple-400";
+  }
+  if (value === "in transit") {
+    return "border-cyan-500/30 bg-[#050A11] hover:border-cyan-400";
+  }
+  if (value === "delivered") {
+    return "border-green-500/30 bg-[#050A11] hover:border-green-400";
+  }
+  return "border-slate-800 bg-[#050A11] hover:border-[#00A3FF]";
+}
+
+function statusPillTone(status: string) {
+  const value = clean(status);
+
+  if (value === "pending") {
+    return "border-yellow-500/30 bg-yellow-500/10 text-yellow-300";
+  }
+  if (value === "assigned") {
+    return "border-blue-500/30 bg-blue-500/10 text-blue-300";
+  }
+  if (value === "arrived at pickup") {
+    return "border-purple-500/30 bg-purple-500/10 text-purple-300";
+  }
+  if (value === "in transit") {
+    return "border-cyan-500/30 bg-cyan-500/10 text-cyan-300";
+  }
+  if (value === "delivered") {
+    return "border-green-500/30 bg-green-500/10 text-green-300";
+  }
+  return "border-slate-700 bg-slate-800/40 text-slate-300";
 }
 
 function clean(value?: string) {
